@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cricket2"
+version = "0.1.0"
+description = "Trace compiler for GRiD/GLASS rigid-body kernels: thread, warp and block CUDA from one algorithm source"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.23"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: CUDA",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.optional-dependencies]
+# URDFParser (and RBDReference, the oracle) come from GRiD: an installed GRiD, else the GRiD
+# checkout next to cricket2 (CRICKET2_GRID_PATH overrides). Pinocchio is the second oracle.
+test = ["pytest>=7.0", "pin"]
+
+[tool.setuptools]
+package-dir = { "" = "python" }
+packages = ["cricket2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["python", "tests"]
