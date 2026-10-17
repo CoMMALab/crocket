@@ -60,3 +60,22 @@ python tests/bench_grid.py             # RNEA vs GRiD's generated kernel (milest
 
 Every tier computes each output element with one lane and one fixed expression, so tiers and
 group sizes are bit-identical under `-fmad=false`.
+
+## FK performance
+
+cricket2's thread tier against GRiM's baked-table FK and pRRTC's table-driven `fk<Panda>`, RTX
+A5000. Ratios above 1 favor cricket2. The two comparisons are timed differently, so compare ratios
+within a row, not milliseconds across rows.
+
+| baseline | robot | output | timing | B = 16 | B = 128 | B = 1024 | B = 16384 |
+|---|---|---|---|---|---|---|---|
+| GRiM (`traced=False`) | iiwa14 | all frame poses + EE Jacobian | JAX wall time | 1.22× | 1.16× | 1.13× | 1.13× |
+| GRiM (`traced=False`) | g1 (29 DOF) | all frame poses + EE Jacobian | JAX wall time | 1.37× | 1.15× | 1.15× | 1.04× |
+| pRRTC `fk<Panda>` | panda | 59 collision spheres | raw kernel, CUDA events | 4.15× | 3.53× | 3.53× | 4.86× |
+
+Outputs agree to 1e-6. GRiM's FK loop is already lean, so folding the robot in gains little.
+pRRTC branches on joint type and multiplies full 4×4 transforms from tables at runtime, which
+cricket2 folds away. For pRRTC, cricket2 emits the link poses and the spheres are placed by
+generated straight-line code with pRRTC's sphere constants. Both kernels write coalesced
+`[sphere * 3 + axis][config]` output. Below B = 128 the GRiM rows include about 0.12 ms of JAX
+dispatch.
