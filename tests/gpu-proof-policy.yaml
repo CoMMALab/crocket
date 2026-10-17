@@ -1,0 +1,3 @@
+# pytest-gpu-proof verification policy for cricket2: a clean tree, at most 30 days old.
+allow_dirty: false
+max_age_days: 30

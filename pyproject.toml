@@ -19,7 +19,7 @@ classifiers = [
 [project.optional-dependencies]
 # URDFParser (and RBDReference, the oracle) come from GRiD: an installed GRiD, else the GRiD
 # checkout next to cricket2 (CRICKET2_GRID_PATH overrides). Pinocchio is the second oracle.
-test = ["pytest>=7.0", "pin"]
+test = ["pytest>=7.0", "pin", "pytest-gpu-proof>=0.4.1"]
 
 [tool.setuptools]
 package-dir = { "" = "python" }
@@ -28,3 +28,16 @@ packages = ["cricket2"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["python", "tests"]
+markers = ["gpu_proof: recorded in the signed pytest-gpu-proof receipt (every test in tests/test_cuda.py)."]
+
+[tool.gpu_proof]
+# Record on a GPU, commit gpu-proof.json, verify CPU-only (GRiM's test/verify_gpu_proofs.sh):
+#   python -m pytest tests/test_cuda.py --gpu-proof-enable
+#   gpu-proof verify --receipt gpu-proof.json --policy tests/gpu-proof-policy.yaml
+mode = "local"
+output = "gpu-proof.json"
+github_username = "saiccoumar"
+required_marker = "gpu_proof"
+fingerprint_paths = ["python/cricket2", "pyproject.toml", "resources", "tests"]
+fingerprint_excluded_paths = ["gpu-proof.json"]
+max_age_days = 30

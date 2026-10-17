@@ -14,6 +14,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+pytestmark = pytest.mark.gpu_proof
+
 import cricket2
 from cricket2 import cuda, harness
 from robots import SMALL, options, robot
