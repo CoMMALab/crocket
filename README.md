@@ -1,12 +1,11 @@
-# cricket2: a trace compiler for GRiD/GLASS rigid-body kernels
+# cricket2: a trace compiler for rigid-body robotics kernels
 
 cricket2 traces rigid-body algorithms, written once at the level of spatial-algebra operations, and
 compiles them per robot into CUDA for a thread, a warp or a block. Like cricket, it folds the
 robot's constants into straight-line code. Like GRiD, it can also run *inside* one problem in
-parallel, following the kinematic tree.
+parallel, following the kinematic tree. Parallelism tiers are modeled after GLASS.
 
-It is a new compiler, not a fork. The pipeline has cricket's shape (trace, then generate), with a
-new IR and back end:
+
 
 | stage | module | what it does |
 |---|---|---|
