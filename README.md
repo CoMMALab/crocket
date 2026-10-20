@@ -1,4 +1,4 @@
-# crocket: a trace compiler for rigid-body robotics kernels
+# crocket: a algorithmic CUDA trace compiler for rigid-body robotics kernels
 
 crocket traces rigid-body algorithms, written once at the level of spatial-algebra operations, and
 compiles them per robot into CUDA for a thread, a warp or a block. Like cricket, it folds the
