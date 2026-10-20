@@ -54,7 +54,6 @@ float kinematics interface (`frame_poses`, `ee_pose`, `ee_pose_jacobian`), which
 pip install -e .                       # numpy; URDFParser / RBDReference come from the GRiD checkout
 python -m pytest tests/test_oracle.py  # interpreter vs RBDReference and Pinocchio (CPU)
 python -m pytest tests/test_cuda.py    # every tier vs interpreter, bit-identity, invariance, -O0/-O3 guard
-python tests/bench_grid.py             # RNEA vs GRiD's generated kernel (milestone-2 gate)
 ```
 
 Every tier computes each output element with one lane and one fixed expression, so tiers and
