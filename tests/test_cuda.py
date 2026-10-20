@@ -16,8 +16,8 @@ import pytest
 
 pytestmark = pytest.mark.gpu_proof
 
-import cricket2
-from cricket2 import cuda, harness
+import crocket
+from crocket import cuda, harness
 from robots import SMALL, options, robot
 
 ALGORITHMS = ["rnea", "crba", "aba", "rnea_derivatives", "frame_poses", "frame_jacobian"]
@@ -28,7 +28,7 @@ COOPERATIVE = [cuda.Variant("split", 8), cuda.Variant("warp", 32), cuda.Variant(
 
 def _trace(robot_name, name):
     r = robot(robot_name)
-    return cricket2.trace(r, name, **options(r, name))
+    return crocket.trace(r, name, **options(r, name))
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
@@ -91,7 +91,7 @@ def test_large_trace_guard(robot_name, name):
 
 
 def test_tune_picks_a_validated_layout_and_caches_it():
-    from cricket2 import tune
+    from crocket import tune
 
     p = _trace("panda", "rnea")
     best = tune.tune(p, 256, reps=5, refresh=True)

@@ -19,12 +19,12 @@ import numpy as np
 from . import cuda
 from .trace import Program
 
-ARCH = os.environ.get("CRICKET2_ARCH", "-arch=native")
+ARCH = os.environ.get("CROCKET_ARCH", "-arch=native")
 SMEM_LIMIT = 96 * 1024  # bytes of shared scratch per block before falling back to global memory
 
 
 def cache_dir() -> Path:
-    root = os.environ.get("CRICKET2_CACHE") or Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "cricket2"
+    root = os.environ.get("CROCKET_CACHE") or Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "crocket"
     path = Path(root)
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -157,7 +157,7 @@ def build(cases: list[tuple[Program, cuda.Variant]], dtype=np.float32, flags: tu
         programs[id(p)] = p
     sections = [cuda.emit(programs[k], vs, budget) for k, vs in by_program.items()]
     src = cuda.header(robot, sections, name="robot")
-    src += f"namespace r = cricket2::robots::robot;\nconstexpr size_t SMEM_LIMIT = {SMEM_LIMIT};\n" + "".join(
+    src += f"namespace r = crocket::robots::robot;\nconstexpr size_t SMEM_LIMIT = {SMEM_LIMIT};\n" + "".join(
         _kernel(i, p, v, "robot", T) for i, (p, v) in enumerate(cases))
     flags = (*flags, "-std=c++17", ARCH, "--shared", "--compiler-options", "-fPIC")
     key = hashlib.sha1((src + " ".join(flags)).encode()).hexdigest()

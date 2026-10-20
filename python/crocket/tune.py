@@ -4,7 +4,7 @@ measurement, as GRiD's ``config/launch_configs`` does by hand.
 The cost model first rejects layouts whose shared scratch would cut residency below
 ``MIN_WARPS_PER_SM``; the remaining candidates are compiled (in parallel), validated against the
 interpreter and timed once. The winner is cached on disk under
-(robot hash, algorithm, options, batch, precision, cricket2 version, nvcc version).
+(robot hash, algorithm, options, batch, precision, crocket version, nvcc version).
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Milestone-2 gate: cricket2's RNEA (every tier, autotuned) against GRiD's generated
+"""Milestone-2 gate: crocket's RNEA (every tier, autotuned) against GRiD's generated
 ``inverse_dynamics_kernel`` on the same GPU, float, kernel time by CUDA events.
 
     python tests/bench_grid.py [robot ...]      # default: a 7-DoF arm and a humanoid
@@ -19,9 +19,9 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import cricket2  # noqa: E402
-from cricket2 import harness, tune  # noqa: E402
-from cricket2.robot import GRID_DIR  # noqa: E402
+import crocket  # noqa: E402
+from crocket import harness, tune  # noqa: E402
+from crocket.robot import GRID_DIR  # noqa: E402
 from robots import URDFS, robot  # noqa: E402
 
 BATCHES = (16, 128, 1024, 16384)
@@ -92,7 +92,7 @@ def grid_library(name: str) -> ctypes.CDLL:
 
 def bench(name: str) -> list[tuple]:
     r = robot(name)
-    p = cricket2.trace(r, "rnea")
+    p = crocket.trace(r, "rnea")
     lib = grid_library(name)
     fptr = ctypes.POINTER(ctypes.c_float)
     lib.bench.restype = ctypes.c_float
@@ -107,7 +107,7 @@ def bench(name: str) -> list[tuple]:
         best = tune.tune(p, batch, reps=REPS)
         rows.append((name, r.n_q, batch, grid_ms, err, best.ms, f"{best.tier}/{best.units}/t{best.threshold}/b{best.block}"))
         print(f"{name:14s} n={r.n_q:3d} B={batch:6d}  GRiD {grid_ms * 1e3:9.2f} us (err {err:.1e})  "
-              f"cricket2 {best.ms * 1e3:9.2f} us [{rows[-1][-1]}]  speedup {grid_ms / best.ms:5.2f}x", flush=True)
+              f"crocket {best.ms * 1e3:9.2f} us [{rows[-1][-1]}]  speedup {grid_ms / best.ms:5.2f}x", flush=True)
     return rows
 
 

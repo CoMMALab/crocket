@@ -1,7 +1,7 @@
-# AGENTS.md: cricket2
+# AGENTS.md: crocket
 
-cricket2 compiles rigid-body algorithms into robot-specific CUDA. You write an algorithm once in
-Python. cricket2 traces it for one robot and emits a header with thread, warp, and block versions.
+crocket compiles rigid-body algorithms into robot-specific CUDA. You write an algorithm once in
+Python. crocket traces it for one robot and emits a header with thread, warp, and block versions.
 GRiM uses it for `traced=True` kinematics and for `grim.motion.dynamics`.
 
 ## How it works
@@ -32,8 +32,8 @@ GRiM uses it for `traced=True` kinematics and for `grim.motion.dynamics`.
    - Functions over the statement budget become `__noinline__` stages. ptxas at -O2/-O3 has
      silently miscompiled huge straight-line traces, and this keeps each function small.
 
-4. **Robot-specific header**. `cricket2.generate(robot, {...})` emits one header per robot,
-   `namespace cricket2::robots::<name>`, with these functions:
+4. **Robot-specific header**. `crocket.generate(robot, {...})` emits one header per robot,
+   `namespace crocket::robots::<name>`, with these functions:
    - `<alg>_thread`: one problem per thread.
    - `<alg>_split`: 32 problems per block, with warps splitting the stages.
    - `<alg>_warp`: one problem per warp.
@@ -41,19 +41,19 @@ GRiM uses it for `traced=True` kinematics and for `grim.motion.dynamics`.
 
    The functions are templated on `T` and write outputs as `y[i * ys]`. The cooperative tiers
    end without a barrier. `tune.py` times candidate layouts and caches the winner under
-   `~/.cache/cricket2`.
+   `~/.cache/crocket`.
 
-## When to use cricket2 vs GLASS vs GRiD/GRiM hand-written kernels
+## When to use crocket vs GLASS vs GRiD/GRiM hand-written kernels
 
 | Use | When |
 |---|---|
-| **cricket2** | Robot-specific rigid-body math (FK, Jacobians, dynamics) at **large batch**, with one problem per thread. Specializing for the robot removes loops, branches, constant loads and zero products. Also use it when one algorithm source should produce several tiers. |
+| **crocket** | Robot-specific rigid-body math (FK, Jacobians, dynamics) at **large batch**, with one problem per thread. Specializing for the robot removes loops, branches, constant loads and zero products. Also use it when one algorithm source should produce several tiers. |
 | **GLASS** | Linear algebra that does not depend on the robot: Cholesky, GEMM, reductions. It is already templated on compile-time `N`, so tracing adds nothing. Traced code calls into it, as `fd_crba` does with GLASS Cholesky. |
-| **GRiD (via GRiM `generated_dynamics`)** | **Small batch on high-DOF robots** (latency), derivatives at small batch, runtime inertia, external forces, and second order (IDSVA). cricket2 folds inertias into constants and does not implement second order. |
-| **GRiM hand-written motion kernels** | Solver logic (IK, trajopt, collision, LM). These call FK and Jacobians through `kernels/robot.cuh`, from baked tables or from cricket2 traces (`traced=True`). Choose by measurement. |
+| **GRiD (via GRiM `generated_dynamics`)** | **Small batch on high-DOF robots** (latency), derivatives at small batch, runtime inertia, external forces, and second order (IDSVA). crocket folds inertias into constants and does not implement second order. |
+| **GRiM hand-written motion kernels** | Solver logic (IK, trajopt, collision, LM). These call FK and Jacobians through `kernels/robot.cuh`, from baked tables or from crocket traces (`traced=True`). Choose by measurement. |
 
 Measured speedups, traced vs GRiD, as JAX wall time (`test/benchmarks/bench_traced_vs_generated.py`
-in GRiM, RTX A5000). Ratios above 1 favor cricket2:
+in GRiM, RTX A5000). Ratios above 1 favor crocket:
 
 | | B ≤ 128 | B = 1024 | B = 16384 |
 |---|---|---|---|
@@ -70,12 +70,12 @@ the choice matters, benchmark it and do not assume.
 ## Rules
 
 - **The trace is only as good as the Python.** Tracing removes overhead. It does not find a
-  better algorithm or a better schedule. Port GRiD's formulation when cricket2 loses.
+  better algorithm or a better schedule. Port GRiD's formulation when crocket loses.
 - **Validate every build.** `tests/test_oracle.py` checks the interpreter against RBDReference
   and Pinocchio on CPU. `tests/test_cuda.py` checks every tier against the interpreter,
   bit-identity under `-fmad=false`, and the -O0/-O3 guard.
 - **gpu-proof.** `tests/test_cuda.py` is the signed receipt (`python -m pytest tests/test_cuda.py
-  --gpu-proof-enable` on a clean tree). Any change to `python/cricket2`, `tests`, `resources` or
+  --gpu-proof-enable` on a clean tree). Any change to `python/crocket`, `tests`, `resources` or
   `pyproject.toml` invalidates it. After that, re-record it, bump GRiM's pointer, and re-record
   GRiM's receipt.
 - **Known gaps.** There is no floating-base humanoid in the tests. Derivatives are checked only

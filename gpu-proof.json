@@ -53,7 +53,7 @@
     "file_count": 21,
     "included_paths": [
       "pyproject.toml",
-      "python/cricket2",
+      "python/crocket",
       "resources",
       "tests"
     ]

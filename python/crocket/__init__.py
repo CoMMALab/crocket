@@ -1,4 +1,4 @@
-"""cricket2: a trace compiler for GRiD/GLASS rigid-body kernels."""
+"""crocket: a trace compiler for GRiD/GLASS rigid-body kernels."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def trace(robot: Robot, name: str, **options) -> Program:
 def generate(robot: Robot, algorithms: dict[str, dict], variants=DEFAULT_VARIANTS, name: str | None = None,
              kinematics: dict | None = None, budget: int = cuda.BUDGET) -> str:
     """One CUDA header for ``robot``: each algorithm (name -> trace options) at each tier in
-    ``variants`` (or name -> variants, e.g. from :func:`cricket2.tune.tune`), plus cricket's
+    ``variants`` (or name -> variants, e.g. from :func:`crocket.tune.tune`), plus cricket's
     float kinematics interface when ``kinematics={"frames": [...], "end_effector": ...}``."""
     sections = []
     for alg, options in algorithms.items():

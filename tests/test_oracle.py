@@ -15,7 +15,7 @@ import numpy as np
 import pinocchio as pin
 import pytest
 
-import cricket2
+import crocket
 from robots import ROBOTS, SMALL, URDFS, inputs, options, robot
 
 # n^2 tangents: derivatives on the small set plus one humanoid keeps the suite fast. Pinocchio's
@@ -36,10 +36,10 @@ def _pinocchio(r):
 
 
 def _rbd(r):
-    sys.path.insert(0, str(cricket2.robot.GRID_DIR / "external"))
+    sys.path.insert(0, str(crocket.robot.GRID_DIR / "external"))
     from RBDReference.RBDReference import RBDReference
     from URDFParser import URDFParser
-    with contextlib.redirect_stdout(io.StringIO()), warnings.catch_warnings(), cricket2.robot.exact_origins():
+    with contextlib.redirect_stdout(io.StringIO()), warnings.catch_warnings(), crocket.robot.exact_origins():
         warnings.simplefilter("ignore")
         return RBDReference(URDFParser().parse(str(URDFS[r.name])))
 
@@ -54,9 +54,9 @@ def test_dynamics_vs_pinocchio(robot_name, name):
     r = robot(robot_name)
     if not _supported(r, name):
         with pytest.raises(ValueError, match="mimic"):
-            cricket2.trace(r, name)
+            crocket.trace(r, name)
         return
-    prog = cricket2.trace(r, name)
+    prog = crocket.trace(r, name)
     x = inputs(r)
     out = prog.evaluate(**{k: x[k] for k, _ in prog.inputs})
     model, cols, vcols = _pinocchio(r)
@@ -89,7 +89,7 @@ def test_dynamics_vs_pinocchio(robot_name, name):
                                               if r != "fr3" or n != "aba"])
 def test_dynamics_vs_rbdreference(robot_name, name):
     r = robot(robot_name)
-    prog = cricket2.trace(r, name)
+    prog = crocket.trace(r, name)
     x = inputs(r)
     out = prog.evaluate(**{k: x[k] for k, _ in prog.inputs})
     ref = _rbd(r)
@@ -106,8 +106,8 @@ def test_dynamics_vs_rbdreference(robot_name, name):
 @pytest.mark.parametrize("robot_name", ROBOTS)
 def test_kinematics_vs_pinocchio(robot_name):
     r = robot(robot_name)
-    poses = cricket2.trace(r, "frame_poses", **options(r, "frame_poses"))
-    jac = cricket2.trace(r, "frame_jacobian", **options(r, "frame_jacobian"))
+    poses = crocket.trace(r, "frame_poses", **options(r, "frame_poses"))
+    jac = crocket.trace(r, "frame_jacobian", **options(r, "frame_jacobian"))
     ee = options(r, "frame_jacobian")["frame"]
     x = inputs(r)
     P = poses.evaluate(q=x["q"])["poses"]
@@ -134,8 +134,8 @@ def test_derivatives_match_finite_differences(robot_name):
     """Checks the analytical tangents against the traced RNEA itself (mimic joints included)."""
     r = robot(robot_name)
     x = inputs(r, batch=2)
-    rnea = cricket2.trace(r, "rnea")
-    d = cricket2.trace(r, "rnea_derivatives").evaluate(q=x["q"], qd=x["qd"], qdd=x["qdd"])
+    rnea = crocket.trace(r, "rnea")
+    d = crocket.trace(r, "rnea_derivatives").evaluate(q=x["q"], qd=x["qd"], qdd=x["qdd"])
     h, n = 1e-6, r.n_q
     for wrt, key in (("q", "dtau_dq"), ("qd", "dtau_dqd")):
         fd = np.zeros((2, n, n))
@@ -152,7 +152,7 @@ def test_derivatives_match_finite_differences(robot_name):
 def test_folding_removes_constant_work():
     """A revolute joint's transform is a few sin/cos products, not a dense 6x6."""
     r = robot("panda")
-    prog = cricket2.trace(r, "rnea")
+    prog = crocket.trace(r, "rnea")
     X = [nd for nd in prog.g.nodes if nd.op == "joint_transform"]
     assert len(X) == len(r.joints)  # recorded once per joint (CSE across both passes)
     assert all(nd.cost <= 14 for nd in X)
@@ -160,6 +160,6 @@ def test_folding_removes_constant_work():
 
 def test_dead_outputs_are_eliminated():
     r = robot("panda")
-    prog = cricket2.trace(r, "rnea")
+    prog = crocket.trace(r, "rnea")
     live = prog.g.live(prog.flat_outputs[-1:])  # the leaf joint's torque only
     assert live.sum() < prog.g.live(prog.flat_outputs).sum()

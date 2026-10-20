@@ -9,8 +9,8 @@ from pathlib import Path
 
 import numpy as np
 
-import cricket2
-from cricket2.robot import GRID_DIR
+import crocket
+from crocket.robot import GRID_DIR
 
 RESOURCES = Path(__file__).resolve().parents[1] / "resources"
 URDFS = {name: RESOURCES / f"{name}.urdf" for name in ("panda", "fr3", "ur5", "baxter", "fetch", "pr2")}
@@ -21,11 +21,11 @@ SMALL = ["panda", "fr3", "ur5", "grid_iiwa14", "grid_go2"]  # for the expensive 
 
 
 @lru_cache(maxsize=None)
-def robot(name: str) -> cricket2.Robot:
-    return cricket2.Robot(URDFS[name], name=name)
+def robot(name: str) -> crocket.Robot:
+    return crocket.Robot(URDFS[name], name=name)
 
 
-def inputs(r: cricket2.Robot, batch: int = 4, seed: int = 0) -> dict[str, np.ndarray]:
+def inputs(r: crocket.Robot, batch: int = 4, seed: int = 0) -> dict[str, np.ndarray]:
     """Random configurations within joint limits, then a zero (often singular) one with zero
     velocity, where conditioning bugs show."""
     rng = np.random.default_rng(seed)
@@ -39,7 +39,7 @@ def inputs(r: cricket2.Robot, batch: int = 4, seed: int = 0) -> dict[str, np.nda
             "tau": rng.uniform(-5, 5, (batch, r.n_q))}
 
 
-def options(r: cricket2.Robot, name: str) -> dict:
+def options(r: crocket.Robot, name: str) -> dict:
     """Trace options: frames are every joint frame, the end-effector the deepest movable joint."""
     if name == "frame_poses":
         return {"frames": tuple(r.frames)}

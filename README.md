@@ -1,6 +1,6 @@
-# cricket2: a trace compiler for rigid-body robotics kernels
+# crocket: a trace compiler for rigid-body robotics kernels
 
-cricket2 traces rigid-body algorithms, written once at the level of spatial-algebra operations, and
+crocket traces rigid-body algorithms, written once at the level of spatial-algebra operations, and
 compiles them per robot into CUDA for a thread, a warp or a block. Like cricket, it folds the
 robot's constants into straight-line code. Like GRiD, it can also run *inside* one problem in
 parallel, following the kinematic tree. Parallelism tiers are modeled after GLASS.
@@ -22,19 +22,19 @@ Algorithms: `frame_poses`, `frame_jacobian` (LOCAL_WORLD_ALIGNED), `rnea`, `crba
 ## Usage
 
 ```python
-import cricket2
+import crocket
 
-robot = cricket2.Robot("panda.urdf")
-src = cricket2.generate(robot, {"rnea": {}, "crba": {}, "frame_jacobian": {"frame": "panda_joint7"}})
+robot = crocket.Robot("panda.urdf")
+src = crocket.generate(robot, {"rnea": {}, "crba": {}, "frame_jacobian": {"frame": "panda_joint7"}})
 
-# or pick each algorithm's layout by measurement (cached under ~/.cache/cricket2)
-from cricket2 import tune
-best = tune.tune(cricket2.trace(robot, "rnea"), batch=1024)
-src = cricket2.generate(robot, {"rnea": {}}, variants={"rnea": [cricket2.Variant("thread"), best.variant]})
+# or pick each algorithm's layout by measurement (cached under ~/.cache/crocket)
+from crocket import tune
+best = tune.tune(crocket.trace(robot, "rnea"), batch=1024)
+src = crocket.generate(robot, {"rnea": {}}, variants={"rnea": [crocket.Variant("thread"), best.variant]})
 ```
 
 ```cpp
-namespace r = cricket2::robots::panda;
+namespace r = crocket::robots::panda;
 r::rnea_thread<float>(q, qd, qdd, tau, ys);                // one problem per thread
 r::rnea_split<float>(q, qd, qdd, tau, smem, ys);           // 32 per block, warps split the stages
 r::rnea_warp<float>(q, qd, qdd, tau, smem, ys);            // one per warp; r::rnea_warp_smem per warp
@@ -44,7 +44,7 @@ r::rnea_block<float>(q, qd, qdd, tau, smem, ys);           // one per block of r
 The cooperative tiers end without a barrier. Sync before you read another lane's outputs or reuse
 `smem`.
 
-`cricket2.generate(..., kinematics={"frames": [...], "end_effector": ...})` also emits cricket's
+`crocket.generate(..., kinematics={"frames": [...], "end_effector": ...})` also emits cricket's
 float kinematics interface (`frame_poses`, `ee_pose`, `ee_pose_jacobian`), which GRiM's
 `traced=True` builds use.
 
@@ -62,8 +62,8 @@ group sizes are bit-identical under `-fmad=false`.
 
 ## FK performance
 
-cricket2's thread tier against GRiM's baked-table FK and pRRTC's table-driven `fk<Panda>`, RTX
-A5000. Ratios above 1 favor cricket2. The two comparisons are timed differently, so compare ratios
+crocket's thread tier against GRiM's baked-table FK and pRRTC's table-driven `fk<Panda>`, RTX
+A5000. Ratios above 1 favor crocket. The two comparisons are timed differently, so compare ratios
 within a row, not milliseconds across rows.
 
 | baseline | robot | output | timing | B = 16 | B = 128 | B = 1024 | B = 16384 |
@@ -74,7 +74,7 @@ within a row, not milliseconds across rows.
 
 Outputs agree to 1e-6. GRiM's FK loop is already lean, so folding the robot in gains little.
 pRRTC branches on joint type and multiplies full 4×4 transforms from tables at runtime, which
-cricket2 folds away. For pRRTC, cricket2 emits the link poses and the spheres are placed by
+crocket folds away. For pRRTC, crocket emits the link poses and the spheres are placed by
 generated straight-line code with pRRTC's sphere constants. Both kernels write coalesced
 `[sphere * 3 + axis][config]` output. Below B = 128 the GRiM rows include about 0.12 ms of JAX
 dispatch.

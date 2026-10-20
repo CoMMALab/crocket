@@ -22,13 +22,13 @@ from pathlib import Path
 
 import numpy as np
 
-GRID_DIR = Path(os.environ.get("CRICKET2_GRID_PATH", Path(__file__).resolve().parents[3] / "GRiD"))
+GRID_DIR = Path(os.environ.get("CROCKET_GRID_PATH", Path(__file__).resolve().parents[3] / "GRiD"))
 GRAVITY = -9.81
 _TOL = 1e-12
 
 
 def _import_parser():
-    """``URDFParser`` from an installed GRiD, else from the ``GRiD`` checkout next to cricket2."""
+    """``URDFParser`` from an installed GRiD, else from the ``GRiD`` checkout next to crocket."""
     try:
         from URDFParser import URDFParser
     except ImportError:
@@ -122,7 +122,7 @@ class Robot:
             j = parsed.get_joint_by_id(jid)
             if j.jtype not in ("revolute", "prismatic"):
                 raise ValueError(f"Unsupported joint type {j.jtype!r} (joint {j.name!r}): "
-                                 "cricket2 supports revolute, prismatic and fixed joints")
+                                 "crocket supports revolute, prismatic and fixed joints")
             parent = parsed.get_parent_id(jid)
             E, r = _fit(j.jtype, parsed.get_Xmat_Func_by_id(jid))
             self.joints.append(Joint(
