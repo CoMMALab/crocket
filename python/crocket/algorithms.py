@@ -135,6 +135,86 @@ def ik_lm_step(robot, q, target, lam, frame=None, pos_weight=50.0, ori_weight=10
     return q_next, sq(r), sq(ep), sq(eo)
 
 
+def _pose_residual(robot, q, target, frame):
+    """Jacobian and ``(p - p*, log(R R*^T))`` of ``frame`` at ``q``: GRiM's pose residual."""
+    Xe, J = _jacobian(robot, _poses(robot, q), frame)
+    R = [[Xe[3 * k + i] for k in range(3)] for i in range(3)]
+    qw, qx, qy, qz = target[0], target[1], target[2], target[3]
+    G = [[1.0 - 2.0 * (qy * qy + qz * qz), 2.0 * (qx * qy - qw * qz), 2.0 * (qx * qz + qw * qy)],
+         [2.0 * (qx * qy + qw * qz), 1.0 - 2.0 * (qx * qx + qz * qz), 2.0 * (qy * qz - qw * qx)],
+         [2.0 * (qx * qz - qw * qy), 2.0 * (qy * qz + qw * qx), 1.0 - 2.0 * (qx * qx + qy * qy)]]
+    Rerr = [[R[i][0] * G[j][0] + R[i][1] * G[j][1] + R[i][2] * G[j][2] for j in range(3)] for i in range(3)]
+    return J, [Xe[9 + i] - target[4 + i] for i in range(3)], _so3_log(Rerr)
+
+
+@algorithm(inputs=("q", ("target", lambda o: 7)), outputs=("cost",))
+def ik_pose_cost(robot, q, target, frame=None, pos_weight=50.0, ori_weight=10.0):
+    """``|W r|^2`` at ``q``: the merit of GRiM ``ls_ik``'s line search (the Jacobian is dead
+    code here and drops out of the trace)."""
+    _, ep, eo = _pose_residual(robot, q, target, frame)
+    w = [pos_weight] * 3 + [ori_weight] * 3
+    return sum((e * wk * (e * wk) for e, wk in zip(ep + eo, w)), Scalar.const(robot.t, 0.0))
+
+
+@algorithm(inputs=("q", ("target", lambda o: 7), ("lam", lambda o: 1)),
+           outputs=("delta", "cost", "pos_err2", "ori_err2"))
+def ik_ls_step(robot, q, target, lam, frame=None, pos_weight=50.0, ori_weight=10.0):
+    """GRiM ``ls_ik``'s step direction (kernels/ik/ls_ik.cu): weighted residual and Jacobian,
+    Jacobi column scaling, the outer normal equations ``(Js^T Js + lam I) d = -Js^T W r`` over
+    the frame's chain joints (n x n, where ik_lm_step solves 6 x 6), unscaled. ``delta`` is zero
+    off the chain; ``cost = |W r|^2`` at ``q``. Trust region, line search and acceptance belong
+    to the caller, as in GRiM."""
+    cols = ik_chain_cols(robot, frame)
+    Jw, r, cost, pe2, oe2 = _ls_system(robot, q, target, frame, pos_weight, ori_weight, cols)
+    zero = Scalar.const(robot.t, 0.0)
+    delta = [zero] * robot.n_q
+    for c, d in zip(cols, _ls_solve(robot, [x for row in Jw for x in row], r, lam, len(cols))):
+        delta[c] = d
+    return delta, cost, pe2, oe2
+
+
+def ik_chain_cols(robot, frame):
+    """q columns that move ``frame``: the unknowns of GRiM's chain-only solve."""
+    f = robot.frame(frame)
+    return sorted({robot.col(j) for j in (robot.ancestors(f.parent) if f.parent >= 0 else [])})
+
+
+def _ls_system(robot, q, target, frame, pos_weight, ori_weight, cols):
+    J, ep, eo = _pose_residual(robot, q, target, frame)
+    zero = Scalar.const(robot.t, 0.0)
+    w = [pos_weight] * 3 + [ori_weight] * 3
+    r = [e * wk for e, wk in zip(ep + eo, w)]
+    sq = lambda v: sum((x * x for x in v), zero)  # noqa: E731
+    return [[J[k][c] * w[k] for c in cols] for k in range(6)], r, sq(r), sq(ep), sq(eo)
+
+
+def _ls_solve(robot, Jw, r, lam, n):
+    """Jacobi-scaled ``(Js^T Js + lam I) d = -Js^T r``, unscaled; ``Jw`` row-major 6 x n."""
+    zero = Scalar.const(robot.t, 0.0)
+    Jw = [Jw[n * k:n * k + n] for k in range(6)]
+    scale = [sum((Jw[k][i] * Jw[k][i] for k in range(6)), zero).sqrt() + 1e-8 for i in range(n)]
+    Js = [[Jw[k][i] / scale[i] for i in range(n)] for k in range(6)]
+    A = [[sum((Js[k][i] * Js[k][j] for k in range(6)), lam[0] if i == j else zero) for j in range(n)]
+         for i in range(n)]
+    d = _cholesky_solve(A, [-sum((Js[k][i] * r[k] for k in range(6)), zero) for i in range(n)])
+    return [di / s for di, s in zip(d, scale)]
+
+
+@algorithm(inputs=("q", ("target", lambda o: 7)), outputs=("Jw", "r", "cost", "pos_err2", "ori_err2"))
+def ik_ls_system(robot, q, target, frame=None, pos_weight=50.0, ori_weight=10.0):
+    """First half of ``ik_ls_step``: the weighted chain Jacobian (row-major 6 x n_chain), weighted
+    residual and errors. With ``ik_ls_solve`` it lets the two halves run at different precisions,
+    as GRiM's ls_ik does (float kinematics, double normal equations)."""
+    return _ls_system(robot, q, target, frame, pos_weight, ori_weight, ik_chain_cols(robot, frame))
+
+
+@algorithm(inputs=(("Jw", lambda o: 6 * o["n"]), ("r", lambda o: 6), ("lam", lambda o: 1)),
+           outputs=("delta",))
+def ik_ls_solve(robot, Jw, r, lam, n=0):
+    """Second half of ``ik_ls_step``: the step over the ``n`` chain columns."""
+    return _ls_solve(robot, Jw, r, lam, n)
+
+
 def _min_tree(xs):
     """Balanced min reduction: depth log2(n), so the cooperative tiers can split it."""
     while len(xs) > 1:

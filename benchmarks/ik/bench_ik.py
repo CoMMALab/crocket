@@ -7,13 +7,15 @@ Same targets (FK of random in-limit configurations), seeds, weights (position 50
 * ``crocket`` crocket's traced LM step (``ik_lm_step``: FK, Jacobian, residual, damped 6x6
               Cholesky solve and joint-limit projection in one traced function) inside a CUDA
               accept/reject loop with the same settings (ik/crocket_ik.py)
+* ``crocket_ls_{f32,f64,mixed}``  GRiM's ``ls_ik`` formulation and loop, its step and
+              merit traced by crocket, all-float / all-double / GRiM's float-FK, double-solve split (ik/crocket_ik_ls.py)
 * ``pyroki``  pyroki's own IK formulation (``pose_cost_analytic_jac`` + ``limit_constraint``)
               solved by jaxls (dense Cholesky LM), vmapped over problems x seeds
 
 Success is judged in float64 by Pinocchio on the returned configuration: position < 1 mm,
 orientation < 0.01 rad, inside joint limits.
 
-    python ik/bench_ik.py <prepare|grim|crocket|pyroki> [robot ...]
+    python ik/bench_ik.py <prepare|grim|crocket|crocket_ls_f32|crocket_ls_f64|crocket_ls_mixed|pyroki> [robot ...]
 """
 
 from __future__ import annotations
@@ -129,7 +131,16 @@ def run_crocket(robot, seeds, target):
     return crocket_ik.run(robot, seeds, target, EE[robot], MAX_ITER, POS_W, ORI_W)
 
 
+def run_crocket_ls(precision):
+    def run(robot, seeds, target):
+        import crocket_ik_ls
+        return crocket_ik_ls.run(robot, seeds, target, EE[robot], MAX_ITER, POS_W, ORI_W, precision)
+    return run
+
+
 RUNNERS = {"grim": lambda r, s, t: run_grim(r, s, t, False), "crocket": run_crocket,
+           "crocket_ls_f32": run_crocket_ls("f32"), "crocket_ls_f64": run_crocket_ls("f64"),
+           "crocket_ls_mixed": run_crocket_ls("mixed"),
            "pyroki": run_pyroki}
 
 

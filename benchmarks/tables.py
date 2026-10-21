@@ -12,7 +12,7 @@ FK = {"prrtc": "pRRTC `fk<Robot>`", "curobo": "cuRobo", "pyroki": "pyroki",
 FKCC = {"prrtc": "pRRTC `fk` + `env_collision_check`", "curobo": "cuRobo `RobotCollisionChecker`",
         "pyroki": "pyroki `RobotCollision`", "grim": "GRiD/GRiM fused (baked tables)",
         "crocket": "GRiM fused, crocket-traced FK", "crocket_fused": "crocket `sphere_collision` (fully traced)"}
-IK = {"grim": "GRiM LS IK, GRiD tables", "crocket": "crocket traced LM step",
+IK = {"grim": "GRiM LS IK, GRiD tables", "crocket_ls_mixed": "crocket-traced GRiM LS IK",
       "pyroki": "pyroki + jaxls"}
 DYN = {"grid": "GRiD", "crocket": "crocket", "frax": "frax"}
 OPS = {"id": "ID (RNEA)", "crba": "M (CRBA)", "fd": "FD", "id_du": "∂ID/∂(q, q̇)"}
@@ -75,7 +75,7 @@ def ik_section() -> str:
     rows = load("ik")
     parts = ["### IK: one end-effector pose, 8 seeds per problem, 60 iterations max\n",
              "Time per call in ms, then success rate (position < 1 mm, orientation < 0.01 rad, "
-             "within limits; Pinocchio float64). GRiM and crocket report their fastest tier."]
+             "within limits; Pinocchio float64). GRiM reports its fastest tier; crocket runs one seed per thread."]
     for P in sorted({r["batch"] for r in rows}):
         parts.append(f"\n**{P} problem{'s' if P > 1 else ''} × 8 seeds**\n")
         parts.append(table("method", [(label, [

@@ -15,15 +15,17 @@ bash benchmarks/run_all.sh        # picks a free GPU, runs everything, rewrites 
 - **Fused FK + collision:** crocket's `sphere_collision` is fastest at B = 16384 (0.31-0.53 ms vs
   pRRTC's 0.45-0.85). pRRTC is 1.5x faster at B <= 1024 on Panda and Baxter. GRiM with traced FK
   gains nothing over GRiM; cuRobo (4.4-5.9 ms) and pyroki (7-13 ms) trail.
-- **IK:** crocket's traced LM step takes 1.6-2.8 ms at 1024 x 8 seeds, against GRiM's 70-207 ms
-  and pyroki's 0.8-5.6 s. Success is within 1.6 points of GRiM's; pyroki solves slightly more
-  (98-100%).
+- **IK:** traced, GRiM's own LS algorithm at GRiM's precision takes 14-24 ms at 1024 x 8 seeds,
+  against GRiM's 70-207 ms (4.9-8.7x) and pyroki's 0.8-5.6 s, with GRiM's success in every
+  cell. At 1 x 8 the gain is 1.5x on Baxter and g1, and GRiM's block tier is faster on Panda.
+  pyroki solves slightly more (98-100%).
 - **Dynamics:** at B >= 1024 crocket leads GRiD by up to 62x (inverse dynamics at B = 16384).
   At B <= 128 GRiD is mostly faster, most of all on g1 derivatives. GRiD runs out of memory on
   g1 at B = 16384, and so does frax's autodiff derivative. At large batch frax is as fast as GRiD
   or faster for ID and CRBA.
 - **Lesson:** trace the whole computation. Swapping crocket's FK into hand-written kernels
-  gained at most 3x; tracing the step or the fused check gained up to 74x.
+  gained at most 3x; tracing the whole IK step gained up to 8.7x at equal algorithm and precision,
+  and the fused check or the dynamics up to 62x.
 
 ## Protocol
 
@@ -112,16 +114,18 @@ orientation weight 10, at most 60 iterations. Success: some seed within 1 mm and
 joint limits, by Pinocchio.
 
 - **GRiM LS IK, GRiD tables**: `grim.motion.ik` `ls` kernel (Levenberg-Marquardt), `traced=False`.
-- **crocket traced LM step** (`ik/crocket_ik.py`): crocket's `ik_lm_step` algorithm, after
-  McVAMP (Iyer et al., *Vectorizing Projection in Manifold-Constrained Motion Planning*, 2026):
-  one traced function computes FK, the Jacobian, the weighted pose residual with a smooth SO(3)
-  log, the inner Levenberg-Marquardt step `J^T (J J^T + λI)^-1 r` through an unrolled 6x6
-  Cholesky, and the projection onto the joint limits. The loop around it is plain CUDA: accept
-  if the cost drops (λ / 3), else reject (λ × 4) and retry; λ starts at 5e-3 (GRiM's
-  `lambda_init`); stop at 60 iterations or within GRiM's `eps_pos` / `eps_ori`. Thread and
-  warp tiers, fastest reported. A raw CUDA launch timed like the pRRTC harness, so it pays no
-  JAX dispatch (about 0.05 ms, small against these times). It replaces the earlier row that
-  only swapped crocket's FK into GRiM's hand-written solver.
+- **crocket-traced GRiM LS IK** (`ik/crocket_ik_ls.py`): GRiM's `ls` algorithm and precision,
+  traced, so the row isolates tracing. `ik_ls_system` (FK, chain Jacobian, weighted residual) is
+  traced in float, `ik_ls_solve` (Jacobi column scaling, the chain's n x n normal equations
+  `(Js^T Js + λI) d = -Js^T r`, unrolled Cholesky) in double, as GRiM splits them; the
+  line-search merit `ik_pose_cost` is traced in float. The loop around them copies `ls_ik.cu`:
+  convergence test, trust-region radii, the five line-search step sizes clamped to the joint
+  limits, accept below `cost × (1 - 1e-4)` (λ / 2, else λ × 3), all-time best returned. The step
+  matches GRiM's float64 reference to 1e-10, and success matches GRiM's in every cell. One seed
+  per thread. A raw CUDA launch timed like the pRRTC harness, so it pays no JAX dispatch (about
+  0.05 ms, small against these times). Not shown: the same build all-float is a further
+  4.7-5.3x faster at 1024 x 8 with no loss of success, and crocket's own 6x6 `ik_lm_step`
+  (McVAMP's inner LM form) about 2x beyond that, 0.1-1.6 points less success.
 - **pyroki + jaxls**: pyroki's own IK formulation (`pose_cost_analytic_jac` + `limit_constraint`,
   dense-Cholesky LM, as in its `_solve_ik` example), `vmap`ped over problems × seeds.
 
@@ -240,30 +244,30 @@ Boxes per robot: panda 11, baxter 11, g1 7; about 46% of groups collide. Time pe
 
 ### IK: one end-effector pose, 8 seeds per problem, 60 iterations max
 
-Time per call in ms, then success rate (position < 1 mm, orientation < 0.01 rad, within limits; Pinocchio float64). GRiM and crocket report their fastest tier.
+Time per call in ms, then success rate (position < 1 mm, orientation < 0.01 rad, within limits; Pinocchio float64). GRiM reports its fastest tier; crocket runs one seed per thread.
 
 **1 problem × 8 seeds**
 
 | method | panda | baxter | g1 |
 |---|---|---|---|
-| GRiM LS IK, GRiD tables | 8.02 (100.0%, block) | 15.70 (100.0%, block) | 24.68 (100.0%, block) |
-| crocket traced LM step | 1.55 (100.0%, thread) | 1.65 (100.0%, thread) | 2.18 (100.0%, thread) |
+| GRiM LS IK, GRiD tables | 8.02 (100.0%, block) | 15.70 (100.0%, block) | 24.72 (100.0%, block) |
+| crocket-traced GRiM LS IK | 10.19 (100.0%, mixed) | 10.33 (100.0%, mixed) | 16.60 (100.0%, mixed) |
 | pyroki + jaxls | 139.38 (100.0%, vmap) | 452.21 (100.0%, vmap) | 229.94 (100.0%, vmap) |
 
 **128 problems × 8 seeds**
 
 | method | panda | baxter | g1 |
 |---|---|---|---|
-| GRiM LS IK, GRiD tables | 16.42 (97.7%, warp) | 30.36 (97.7%, warp) | 64.98 (99.2%, warp) |
-| crocket traced LM step | 1.55 (95.3%, thread) | 1.67 (95.3%, thread) | 2.30 (97.7%, thread) |
+| GRiM LS IK, GRiD tables | 16.43 (97.7%, warp) | 30.44 (97.7%, warp) | 65.15 (99.2%, warp) |
+| crocket-traced GRiM LS IK | 10.23 (97.7%, mixed) | 10.32 (97.7%, mixed) | 16.43 (99.2%, mixed) |
 | pyroki + jaxls | 284.18 (99.2%, vmap) | 826.01 (98.4%, vmap) | 1114.59 (100.0%, vmap) |
 
 **1024 problems × 8 seeds**
 
 | method | panda | baxter | g1 |
 |---|---|---|---|
-| GRiM LS IK, GRiD tables | 69.91 (95.4%, thread) | 123.49 (95.8%, thread) | 206.91 (98.5%, thread) |
-| crocket traced LM step | 1.60 (93.8%, thread) | 1.78 (95.5%, thread) | 2.80 (98.4%, thread) |
+| GRiM LS IK, GRiD tables | 70.02 (95.4%, thread) | 123.99 (95.8%, thread) | 207.50 (98.5%, thread) |
+| crocket-traced GRiM LS IK | 14.27 (95.4%, mixed) | 14.33 (95.8%, mixed) | 23.78 (98.5%, mixed) |
 | pyroki + jaxls | 842.13 (98.2%, vmap) | 2807.43 (98.9%, vmap) | 5573.17 (100.0%, vmap) |
 
 ### Dynamics

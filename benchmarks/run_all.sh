@@ -32,7 +32,7 @@ for m in prrtc pyroki grim crocket; do "${JAXPY}" fk/bench_fk.py "$m"; done
 "${TORCHPY}" fk/bench_fk.py curobo
 for m in prrtc pyroki grim crocket crocket_fused; do "${JAXPY}" fk/bench_fkcc.py "$m"; done
 "${TORCHPY}" fk/bench_fkcc.py curobo
-for m in grim crocket pyroki; do "${JAXPY}" ik/bench_ik.py "$m"; done
+for m in grim crocket_ls_mixed pyroki; do "${JAXPY}" ik/bench_ik.py "$m"; done
 for m in grid crocket frax; do "${JAXPY}" dynamics/bench_dynamics.py "$m"; done
 
 "${JAXPY}" tables.py
