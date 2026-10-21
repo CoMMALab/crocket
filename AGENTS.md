@@ -7,7 +7,9 @@ GRiM uses it for `traced=True` kinematics and for `grim.motion.dynamics`.
 ## How it works
 
 1. **Python front end** (`algorithms.py`, `trace.py`). Algorithms such as RNEA, CRBA, ABA,
-   `rnea_derivatives`, `frame_poses` and `frame_jacobian` are plain Python. They operate on
+   `rnea_derivatives`, `frame_poses`, `frame_jacobian`, `sphere_collision` (fused FK +
+   environment check) and `ik_lm_step` (one projected Levenberg-Marquardt IK step) are plain
+   Python. They operate on
    traced spatial types: `Scalar`, `Vec3`, `Motion`, `Force`, `Inertia`, `SE3`. The robot comes
    from `robot.py`, which uses GRiD's `URDFParser`, so joint order and constants match GRiD.
    Running an algorithm records it. Loops over joints run during tracing, so they leave no loops
@@ -50,7 +52,7 @@ GRiM uses it for `traced=True` kinematics and for `grim.motion.dynamics`.
 | **crocket** | Robot-specific rigid-body math (FK, Jacobians, dynamics) at **large batch**, with one problem per thread. Specializing for the robot removes loops, branches, constant loads and zero products. Also use it when one algorithm source should produce several tiers. |
 | **GLASS** | Linear algebra that does not depend on the robot: Cholesky, GEMM, reductions. It is already templated on compile-time `N`, so tracing adds nothing. Traced code calls into it, as `fd_crba` does with GLASS Cholesky. |
 | **GRiD (via GRiM `generated_dynamics`)** | **Small batch on high-DOF robots** (latency), derivatives at small batch, runtime inertia, external forces, and second order (IDSVA). crocket folds inertias into constants and does not implement second order. |
-| **GRiM hand-written motion kernels** | Solver logic (IK, trajopt, collision, LM). These call FK and Jacobians through `kernels/robot.cuh`, from baked tables or from crocket traces (`traced=True`). Choose by measurement. |
+| **GRiM hand-written motion kernels** | Solver control flow that branches on data: iteration loops, accept/reject, early exit, convergence. The fixed-size math inside each iteration (FK, Jacobian, residual, the damped solve, the limit projection, collision terms) should be a traced crocket algorithm, not hand-written code calling traced FK through `kernels/robot.cuh` (`traced=True`). That swap alone gained 1.2-3x on IK; tracing the whole step gained 13-74x (see `benchmarks/README.md` on the `benchmarks` branch). |
 
 Measured speedups, traced vs GRiD, as JAX wall time (`test/benchmarks/bench_traced_vs_generated.py`
 in GRiM, RTX A5000). Ratios above 1 favor crocket:
@@ -66,6 +68,70 @@ in GRiM, RTX A5000). Ratios above 1 favor crocket:
 The rule of thumb is that traced code wins at batch ≥ 1024 and GRiD wins small-batch high-DOF
 derivatives. Times below B=128 include about 0.12 ms of JAX dispatch, so use nsys there. When
 the choice matters, benchmark it and do not assume.
+
+## Adding a traced algorithm or op
+
+Trace the whole computation, not just its FK. The benchmarks show the cost of doing less:
+- **IK:** GRiM's hand-written LM solver with crocket's FK swapped in (`traced=True`) gained only
+  1.2-3x. Tracing the whole step (`ik_lm_step`) gained 13-74x.
+- **FK + collision:** GRiM's fused collision kernel with traced FK did not beat its own
+  table-driven FK. Tracing FK, sphere placement and the box test together (`sphere_collision`)
+  beat pRRTC at large batch.
+
+The fixed-size math around FK, done by hand-written code, is where the time goes. When a new
+workload needs robot math, write a new algorithm for it. Do not wrap an existing one.
+
+**An algorithm** is a function in `algorithms.py` registered with
+`@algorithm(inputs=..., outputs=...)`:
+- Write it over the traced types. Use `robot.joints` loops for the tree; they unroll at trace
+  time.
+- An input is a name (`n_q` long) or `(name, lambda options: length)` for anything else (boxes,
+  targets, damping).
+- Anything known when the kernel is built is a trace option: spheres, frames, weights, limits,
+  the size of the system. Options fold in as constants and their sparsity propagates. Pass
+  per-call values (obstacle poses, targets, `lam`) as inputs.
+- Outputs are flat lists of Scalars or traced values.
+- Reuse the helpers: `_poses`, `_frame`, `_jacobian`, `_pose_out`, `_cholesky_solve`, `_so3_log`,
+  `_min_tree`. Build reductions as balanced trees (`_min_tree`), so the cooperative tiers can
+  split them; a running chain serialises them.
+
+**Control flow:**
+- No data-dependent control flow inside a trace. Express branch-free choices with `min`/`max`:
+  clamps, hinges, projections.
+- Trace one iteration and leave loops, accept/reject and early exit to the caller. This is the
+  McVAMP pattern (Iyer et al. 2026; reference code in `prrax/mcvamp/cricket/src/tracing/`):
+  constraint error and Jacobian traced, one LM step traced through an unrolled Cholesky, the
+  loop in plain code.
+- Small fixed-size solves (6x6 JJ^T, n x n for small n) belong in the trace, unrolled
+  (`_cholesky_solve`). Solves whose size grows with the robot belong to GLASS.
+
+**Adding a scalar op** touches four places. `abs`, `max`, `min` and `atan2` were added this way:
+- `ir.py` `_FOLD`: a NumPy-compatible function, used for constant folding and the interpreter.
+  Also `_NUMPY` if the `math` version does not take arrays.
+- Algebraic simplifications in `Graph.s`, if any.
+- A `Scalar` method in `trace.py`.
+- The CUDA spelling in `cuda._CALL`, when it is not the op's name.
+
+**Numerics:**
+- Kernels run in float32, so prefer well-conditioned formulas. Example: the SO(3) log uses
+  `atan2(|vee|/2, cos)`. McVAMP's `acos(cos)` with `1 - cos^2` cancels near pi and left float32
+  three correct digits there.
+- Smooth singularities by blending, not by branching, as in `_so3_log`.
+
+**Tests**, before any benchmark:
+- `tests/robots.py` `options()`: the algorithm's trace options for the test robots. Synthesise
+  any geometry the URDFs lack, as `sphere_set` does.
+- `harness.sample_inputs`: sample values for any new input name.
+- `harness.TOLERANCE`: a float bar justified by conditioning, not widened until the test passes.
+- `tests/test_oracle.py`: the interpreter against an independent float64 implementation
+  (Pinocchio or NumPy). Check the step's math in isolation from crocket's kinematics, which
+  `test_kinematics_vs_pinocchio` covers: a solve amplifies the ~1e-8 kinematics differences by
+  its condition number.
+- `tests/test_cuda.py` `ALGORITHMS` / `CASES`: every tier against the interpreter, bit-identity
+  across tiers, and the -O0/-O3 guard.
+- A build with a raised `budget` (no `__noinline__` stage split) needs its own -O0/-O3 and
+  interpreter check (`test_unsplit_sphere_collision`). The split guards against ptxas
+  miscompiles and can cost 2-3x on large traces.
 
 ## Rules
 
