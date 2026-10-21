@@ -62,21 +62,19 @@ python -m pytest tests/test_cuda.py    # every tier vs interpreter, bit-identity
 Every tier computes each output element with one lane and one fixed expression, so tiers and
 group sizes are bit-identical under `-fmad=false`.
 
-## FK performance
+## Benchmarks
 
-crocket's thread tier against GRiM's baked-table FK and pRRTC's table-driven `fk<Panda>`, RTX
-A5000. Ratios above 1 favor crocket. The two comparisons are timed differently, so compare ratios
-within a row, not milliseconds across rows.
+The benchmarks are on the [`benchmarks`](https://github.com/CoMMALab/crocket/tree/benchmarks/benchmarks) branch, under
+`benchmarks/`; `bash benchmarks/run_all.sh` reruns them. They compare crocket against pRRTC,
+cuRobo, pyroki, GRiD/GRiM and frax on Panda (7 DOF), Baxter (14/15) and Unitree G1 with hands
+(43). All runs are float32 on one RTX A5000, every output is checked against Pinocchio, and the
+times are per call at large batch:
 
-| baseline | robot | output | timing | B = 16 | B = 128 | B = 1024 | B = 16384 |
-|---|---|---|---|---|---|---|---|
-| GRiM (`traced=False`) | iiwa14 | all frame poses + EE Jacobian | JAX wall time | 1.22× | 1.16× | 1.13× | 1.13× |
-| GRiM (`traced=False`) | g1 (29 DOF) | all frame poses + EE Jacobian | JAX wall time | 1.37× | 1.15× | 1.15× | 1.04× |
-| pRRTC `fk<Panda>` | panda | 59 collision spheres | raw kernel, CUDA events | 4.15× | 3.53× | 3.53× | 4.86× |
+| workload | crocket | best other | where crocket loses |
+|---|---|---|---|
+| FK + environment collision (`sphere_collision`), B = 16384 | 0.31-0.53 ms | pRRTC 0.45-0.85 ms (1.2-2.8x slower) | B <= 1024: pRRTC is 1.5x faster on Panda and Baxter |
+| IK, traced LM step (`ik_lm_step`), 1024 problems x 8 seeds | 1.6-2.8 ms | GRiM LS IK 70-207 ms (13-74x slower) | success 0.1-1.6 points below GRiM's |
+| Inverse dynamics, B = 16384 | 0.05-0.47 ms | GRiD 1.7-12.7 ms (27-62x slower) | B <= 128: GRiD is mostly faster, most of all on g1 derivatives (0.35 vs 1.04 ms) |
 
-Outputs agree to 1e-6. GRiM's FK loop is already lean, so folding the robot in gains little.
-pRRTC branches on joint type and multiplies full 4×4 transforms from tables at runtime, which
-crocket folds away. For pRRTC, crocket emits the link poses and the spheres are placed by
-generated straight-line code with pRRTC's sphere constants. Both kernels write coalesced
-`[sphere * 3 + axis][config]` output. Below B = 128 the GRiM rows include about 0.12 ms of JAX
-dispatch.
+Trace the whole computation. Swapping crocket's FK into GRiM's hand-written kernels gained
+1.2-3x on IK, nothing on collision, and nothing on FK alone, where pRRTC and cuRobo stay fastest.
