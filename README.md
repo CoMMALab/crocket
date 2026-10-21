@@ -68,13 +68,35 @@ The benchmarks are on the [`benchmarks`](https://github.com/CoMMALab/crocket/tre
 `benchmarks/`; `bash benchmarks/run_all.sh` reruns them. They compare crocket against pRRTC,
 cuRobo, pyroki, GRiD/GRiM and frax on Panda (7 DOF), Baxter (14/15) and Unitree G1 with hands
 (43). All runs are float32 on one RTX A5000, every output is checked against Pinocchio, and the
-times are per call at large batch:
+times are per call at large batch.
 
-| workload | crocket | best other | where crocket loses |
+**FK + environment collision, B = 16384 (ms per call)**
+
+| robot | crocket | pRRTC | cuRobo | pyroki | GRiM | GRiM + crocket FK |
+|---|---|---|---|---|---|---|
+| panda | **0.37** | 0.45 | 4.39 | 7.11 | 0.53 | 0.53 |
+| baxter | **0.53** | 0.75 | 5.90 | 12.89 | 2.20 | 2.33 |
+| g1 | **0.31** | 0.85 | 5.06 | 11.37 | 1.82 | 2.09 |
+
+**IK, 1024 problems x 8 seeds (ms per call, success rate)**
+
+| robot | crocket | GRiM | pyroki |
 |---|---|---|---|
-| FK + environment collision (`sphere_collision`), B = 16384 | 0.31-0.53 ms | pRRTC 0.45-0.85 ms (1.2-2.8x slower) | B <= 1024: pRRTC is 1.5x faster on Panda and Baxter |
-| IK, traced LM step (`ik_lm_step`), 1024 problems x 8 seeds | 1.6-2.8 ms | GRiM LS IK 70-207 ms (13-74x slower) | success 0.1-1.6 points below GRiM's |
-| Inverse dynamics, B = 16384 | 0.05-0.47 ms | GRiD 1.7-12.7 ms (27-62x slower) | B <= 128: GRiD is mostly faster, most of all on g1 derivatives (0.35 vs 1.04 ms) |
+| panda | **1.6 (93.8%)** | 69.9 (95.4%) | 842.1 (98.2%) |
+| baxter | **1.8 (95.5%)** | 123.5 (95.8%) | 2807.4 (98.9%) |
+| g1 | **2.8 (98.4%)** | 206.9 (98.5%) | 5573.2 (100.0%) |
+
+**Inverse dynamics (RNEA), B = 16384 (ms per call)**
+
+| robot | crocket | GRiD | frax |
+|---|---|---|---|
+| panda | **0.045** | 1.715 | 1.365 |
+| baxter | **0.059** | 3.634 | 3.106 |
+| g1 | **0.473** | 12.733 | 11.108 |
+
+Fastest per robot in bold. At small batch crocket gives some of this back: pRRTC is 1.5x faster
+on FK + collision at B <= 1024 for Panda and Baxter, and GRiD is mostly faster at B <= 128,
+most of all on g1 dynamics derivatives.
 
 Trace the whole computation. Swapping crocket's FK into GRiM's hand-written kernels gained
 1.2-3x on IK, nothing on collision, and nothing on FK alone, where pRRTC and cuRobo stay fastest.
