@@ -19,8 +19,10 @@ parallel, following the kinematic tree. Parallelism tiers are modeled after GLAS
 Algorithms: `frame_poses`, `frame_jacobian` (LOCAL_WORLD_ALIGNED), `rnea`, `crba`, `aba`,
 `rnea_derivatives` (analytical), and `sphere_collision` (fused FK + sphere-vs-box environment
 check: `spheres` folded in as constants, `n_boxes` boxes per call, output `min(d² - r²)`),
-and `ik_lm_step` (one Levenberg-Marquardt IK step for a frame's pose target, projected onto
-the joint limits; the caller runs the loop). Joints: revolute, prismatic, fixed, and mimic (except ABA).
+`ik_lm_step` (one Levenberg-Marquardt IK step for a frame's pose target, projected onto
+the joint limits; the caller runs the loop), and GRiM's LS IK step as `ik_ls_step` (Jacobi-scaled
+normal equations over the frame's chain), split into `ik_ls_system` and `ik_ls_solve` so the two
+halves can run at different precisions, with `ik_pose_cost` for the line search. Joints: revolute, prismatic, fixed, and mimic (except ABA).
 
 ## Usage
 
@@ -80,11 +82,14 @@ times are per call at large batch.
 
 **IK, 1024 problems x 8 seeds (ms per call, success rate)**
 
+crocket traces GRiM's own LS algorithm at GRiM's precision (float kinematics, double solve), so
+the column measures tracing alone.
+
 | robot | crocket | GRiM | pyroki |
 |---|---|---|---|
-| panda | **1.6 (93.8%)** | 69.9 (95.4%) | 842.1 (98.2%) |
-| baxter | **1.8 (95.5%)** | 123.5 (95.8%) | 2807.4 (98.9%) |
-| g1 | **2.8 (98.4%)** | 206.9 (98.5%) | 5573.2 (100.0%) |
+| panda | **14.3 (95.4%)** | 70.0 (95.4%) | 842.1 (98.2%) |
+| baxter | **14.3 (95.8%)** | 124.0 (95.8%) | 2807.4 (98.9%) |
+| g1 | **23.8 (98.5%)** | 207.5 (98.5%) | 5573.2 (100.0%) |
 
 **Inverse dynamics (RNEA), B = 16384 (ms per call)**
 
@@ -95,8 +100,9 @@ times are per call at large batch.
 | g1 | **0.473** | 12.733 | 11.108 |
 
 Fastest per robot in bold. At small batch crocket gives some of this back: pRRTC is 1.5x faster
-on FK + collision at B <= 1024 for Panda and Baxter, and GRiD is mostly faster at B <= 128,
-most of all on g1 dynamics derivatives.
+on FK + collision at B <= 1024 for Panda and Baxter, GRiD is mostly faster at B <= 128, most of
+all on g1 dynamics derivatives, and GRiM's block tier is faster on Panda IK at 1 x 8.
 
 Trace the whole computation. Swapping crocket's FK into GRiM's hand-written kernels gained
-1.2-3x on IK, nothing on collision, and nothing on FK alone, where pRRTC and cuRobo stay fastest.
+1.2-3x on IK, nothing on collision, and nothing on FK alone, where pRRTC and cuRobo stay fastest;
+tracing GRiM's whole IK step gained 4.9-8.7x at equal algorithm and precision.
