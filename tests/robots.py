@@ -45,6 +45,8 @@ def options(r: crocket.Robot, name: str) -> dict:
         return {"frames": tuple(r.frames)}
     if name == "frame_jacobian":
         return {"frame": max(r.joints, key=lambda j: j.depth).name}
+    if name == "ik_lm_step":
+        return {"frame": max(r.joints, key=lambda j: j.depth).name}
     if name == "sphere_collision":
         return {"spheres": sphere_set(r), "n_boxes": 3}
     return {}

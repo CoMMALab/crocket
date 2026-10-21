@@ -40,9 +40,8 @@ def frame_poses(robot, q, frames=()):
     return [_pose_out(_frame(robot, X0, name)) for name in frames]
 
 
-@algorithm(inputs=("q",), outputs=("pose", "jacobian"))
-def frame_jacobian(robot, q, frame=None):
-    X0 = _poses(robot, q)
+def _jacobian(robot, X0, frame):
+    """World transform of ``frame`` and its LOCAL_WORLD_ALIGNED Jacobian, rows (v, w)."""
     Xe = _frame(robot, X0, frame)
     p = Xe.translation
     f = robot.frame(frame)
@@ -52,7 +51,88 @@ def frame_jacobian(robot, q, frame=None):
         col = (X0[j].inv() @ robot.S(j)).at(p)  # world-aligned twist at the frame origin
         for row, k in enumerate((3, 4, 5, 0, 1, 2)):
             J[row][robot.col(j)] = J[row][robot.col(j)] + col[k] * robot.scale(j)
+    return Xe, J
+
+
+@algorithm(inputs=("q",), outputs=("pose", "jacobian"))
+def frame_jacobian(robot, q, frame=None):
+    Xe, J = _jacobian(robot, _poses(robot, q), frame)
     return _pose_out(Xe), J
+
+
+def _so3_log(R, eps=1e-12):
+    """``log(R)^vee``, smooth through theta = 0: the Taylor form ``vee / 2`` blended with the
+    exact ``theta / (2 sin theta) vee`` by ``w = sin^2 / (sin^2 + eps)`` (McVAMP's so3_log_smooth).
+    ``sin theta = |vee| / 2`` and ``theta = atan2(sin, cos)`` rather than McVAMP's ``acos`` and
+    ``1 - cos^2``: those cancel near pi and leave float32 three digits there."""
+    vee = [R[2][1] - R[1][2], R[0][2] - R[2][0], R[1][0] - R[0][1]]
+    s2 = (vee[0] * vee[0] + vee[1] * vee[1] + vee[2] * vee[2]) * 0.25
+    s = s2.sqrt()
+    c = (R[0][0] + R[1][1] + R[2][2] - 1.0) * 0.5
+    w = s2 / (s2 + eps)
+    k = (1.0 - w) * 0.5 + w * s.atan2(c) / (2.0 * s + eps)
+    return [v * k for v in vee]
+
+
+def _cholesky_solve(A, b):
+    """``A^-1 b`` for symmetric positive definite ``A``, unrolled (fixed size, branch-free)."""
+    n = len(b)
+    L = [[None] * n for _ in range(n)]
+    for i in range(n):
+        for k in range(i + 1):
+            acc = A[i][k]
+            for j in range(k):
+                acc = acc - L[i][j] * L[k][j]
+            L[i][k] = acc.sqrt() if i == k else acc / L[k][k]
+    y = [None] * n
+    for i in range(n):
+        acc = b[i]
+        for j in range(i):
+            acc = acc - L[i][j] * y[j]
+        y[i] = acc / L[i][i]
+    x = [None] * n
+    for i in reversed(range(n)):
+        acc = y[i]
+        for j in range(i + 1, n):
+            acc = acc - L[j][i] * x[j]
+        x[i] = acc / L[i][i]
+    return x
+
+
+@algorithm(inputs=("q", ("target", lambda o: 7), ("lam", lambda o: 1)),
+           outputs=("q_next", "cost", "pos_err2", "ori_err2"))
+def ik_lm_step(robot, q, target, lam, frame=None, pos_weight=50.0, ori_weight=10.0):
+    """One damped least-squares step of single-frame pose IK, projected onto the joint limits.
+
+    ``target`` is the frame's goal pose ``[qw, qx, qy, qz, x, y, z]``; ``lam`` the damping. The
+    residual is ``r = [w_p (p - p*); w_o log(R R*^T)]`` with the world-frame Jacobian (the
+    orientation rows are the angular-velocity rows, log's first-order Jacobian). The step is the
+    inner Levenberg-Marquardt form ``J^T (J J^T + lam I)^-1 r`` (6x6 whatever the robot), then
+    ``q - step`` is clamped to the joint limits. ``cost = |r|^2`` is at the input ``q``. The
+    loop (acceptance, damping updates, convergence) belongs to the caller.
+    """
+    Xe, J = _jacobian(robot, _poses(robot, q), frame)
+    R = [[Xe[3 * k + i] for k in range(3)] for i in range(3)]  # world rotation: E^T
+    qw, qx, qy, qz = target[0], target[1], target[2], target[3]
+    G = [[1.0 - 2.0 * (qy * qy + qz * qz), 2.0 * (qx * qy - qw * qz), 2.0 * (qx * qz + qw * qy)],
+         [2.0 * (qx * qy + qw * qz), 1.0 - 2.0 * (qx * qx + qz * qz), 2.0 * (qy * qz - qw * qx)],
+         [2.0 * (qx * qz - qw * qy), 2.0 * (qy * qz + qw * qx), 1.0 - 2.0 * (qx * qx + qy * qy)]]
+    Rerr = [[R[i][0] * G[j][0] + R[i][1] * G[j][1] + R[i][2] * G[j][2] for j in range(3)] for i in range(3)]
+    ep = [Xe[9 + i] - target[4 + i] for i in range(3)]
+    eo = _so3_log(Rerr)
+    r = [e * pos_weight for e in ep] + [e * ori_weight for e in eo]
+    Jw = [[x * (pos_weight if row < 3 else ori_weight) for x in J[row]] for row in range(6)]
+    A = [[sum((Jw[i][c] * Jw[k][c] for c in range(robot.n_q)), lam[0] if i == k else Scalar.const(robot.t, 0.0))
+          for k in range(6)] for i in range(6)]
+    z = _cholesky_solve(A, r)
+    q_next = []
+    for c in range(robot.n_q):
+        step = sum((Jw[row][c] * z[row] for row in range(6)), Scalar.const(robot.t, 0.0))
+        jt = next(j for j in robot.robot.joints if j.q_index == c and not j.mimic)
+        lo, hi = max(jt.limits[0], -1e30), min(jt.limits[1], 1e30)
+        q_next.append((q[c] - step).maximum(lo).minimum(hi))
+    sq = lambda v: sum((x * x for x in v), Scalar.const(robot.t, 0.0))  # noqa: E731
+    return q_next, sq(r), sq(ep), sq(eo)
 
 
 def _min_tree(xs):

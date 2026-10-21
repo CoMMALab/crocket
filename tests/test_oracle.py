@@ -159,6 +159,57 @@ def test_sphere_collision_vs_pinocchio(robot_name):
         _close(got[b], want)
 
 
+def _smooth_log(R, eps=1e-12):
+    vee = np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]])
+    s2 = vee @ vee / 4
+    w = s2 / (s2 + eps)
+    return vee * ((1 - w) * 0.5 + w * np.arctan2(np.sqrt(s2), (np.trace(R) - 1) / 2) / (2 * np.sqrt(s2) + eps))
+
+
+def test_smooth_log_matches_pinocchio():
+    """The traced log (McVAMP's smooth form) on exact rotations, from 1e-9 rad to near pi."""
+    rng = np.random.default_rng(3)
+    for theta in (1e-9, 1e-4, 0.3, 1.5, 2.5, 3.1):
+        axis = rng.normal(size=3)
+        R = pin.exp3(theta * axis / np.linalg.norm(axis))
+        np.testing.assert_allclose(_smooth_log(R), pin.log3(R), rtol=1e-7, atol=1e-9)
+
+
+@pytest.mark.parametrize("robot_name", ROBOTS)
+def test_ik_lm_step_matches_numpy(robot_name):
+    """One traced LM step against the same step in numpy: pose and Jacobian from the traced
+    frame_jacobian (checked against Pinocchio by test_kinematics_vs_pinocchio), the same smooth
+    log (checked against Pinocchio's log3 below), the damped solve by numpy. Isolates the step's
+    own math: crocket snaps near-round frame constants, so its rotations are orthonormal only to
+    ~1e-5, which the solve and log near pi amplify differently from Pinocchio."""
+    r = robot(robot_name)
+    frame = options(r, "ik_lm_step")["frame"]
+    prog = crocket.trace(r, "ik_lm_step", frame=frame)
+    jac = crocket.trace(r, "frame_jacobian", frame=frame)
+    rng = np.random.default_rng(2)
+    x = inputs(r, batch=8)
+    quat = rng.normal(size=(8, 4))
+    target = np.concatenate([quat / np.linalg.norm(quat, axis=1, keepdims=True), rng.uniform(-0.5, 0.5, (8, 3))], 1)
+    lam = rng.uniform(1e-2, 1.0, (8, 1))
+    got = prog.evaluate(q=x["q"], target=target, lam=lam)
+    kin = jac.evaluate(q=x["q"])
+    W = np.r_[[50.0] * 3, [10.0] * 3]
+    owner = [next(j for j in r.joints if j.q_index == c and not j.mimic) for c in range(r.n_q)]
+    lo, hi = np.array([j.limits[0] for j in owner]), np.array([j.limits[1] for j in owner])
+    for b in range(8):
+        pose = kin["pose"][b]
+        R = pose[3:].reshape(3, 3).T
+        ep = pose[:3] - target[b, 4:]
+        eo = _smooth_log(R @ pin.Quaternion(*target[b, :4]).matrix().T)
+        rvec = W * np.r_[ep, eo]
+        J = W[:, None] * kin["jacobian"][b].reshape(6, r.n_q)
+        step = J.T @ np.linalg.solve(J @ J.T + lam[b, 0] * np.eye(6), rvec)
+        _close(got["q_next"][b], np.clip(x["q"][b] - step, lo, hi))
+        _close(got["cost"][b, 0], rvec @ rvec)
+        _close(got["pos_err2"][b, 0], ep @ ep)
+        _close(got["ori_err2"][b, 0], eo @ eo)
+
+
 @pytest.mark.parametrize("robot_name", ["panda", "fr3"])
 def test_derivatives_match_finite_differences(robot_name):
     """Checks the analytical tangents against the traced RNEA itself (mimic joints included)."""

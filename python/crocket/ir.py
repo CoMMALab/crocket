@@ -28,6 +28,7 @@ _FOLD = {
     "sin": math.sin,
     "cos": math.cos,
     "sqrt": math.sqrt,
+    "atan2": np.arctan2,
     "abs": abs,
     "max": np.maximum,
     "min": np.minimum,

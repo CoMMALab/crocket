@@ -163,6 +163,10 @@ class Scalar(Value):
     def sqrt(self):
         return self._op("sqrt", self)
 
+    def atan2(self, x):
+        """``atan2(self, x)``."""
+        return self._op("atan2", self, self._lift(x))
+
     def abs(self):
         return self._op("abs", self)
 

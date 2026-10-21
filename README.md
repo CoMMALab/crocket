@@ -18,7 +18,9 @@ parallel, following the kinematic tree. Parallelism tiers are modeled after GLAS
 
 Algorithms: `frame_poses`, `frame_jacobian` (LOCAL_WORLD_ALIGNED), `rnea`, `crba`, `aba`,
 `rnea_derivatives` (analytical), and `sphere_collision` (fused FK + sphere-vs-box environment
-check: `spheres` folded in as constants, `n_boxes` boxes per call, output `min(d² - r²)`). Joints: revolute, prismatic, fixed, and mimic (except ABA).
+check: `spheres` folded in as constants, `n_boxes` boxes per call, output `min(d² - r²)`),
+and `ik_lm_step` (one Levenberg-Marquardt IK step for a frame's pose target, projected onto
+the joint limits; the caller runs the loop). Joints: revolute, prismatic, fixed, and mimic (except ABA).
 
 ## Usage
 

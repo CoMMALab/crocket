@@ -178,7 +178,8 @@ def build(cases: list[tuple[Program, cuda.Variant]], dtype=np.float32, flags: tu
 # Float relative bounds per algorithm: GRiM's accepted bars for traced float dynamics vs float64
 # (scaled: atol = rtol * max(1, max|expected|)). Double is held to 1e-9.
 TOLERANCE = {"rnea": 2e-5, "crba": 2e-5, "rnea_derivatives": 5e-5, "aba": 1e-3,
-             "frame_poses": 2e-5, "frame_jacobian": 2e-5}
+             "frame_poses": 2e-5, "frame_jacobian": 2e-5,
+             "ik_lm_step": 1e-3}  # a 6x6 solve, as aba: conditioning scales with 1 / lam
 
 
 def scaled_error(actual: np.ndarray, expected: np.ndarray) -> float:
@@ -201,6 +202,11 @@ def sample_inputs(p: Program, batch: int, seed: int = 0) -> dict[str, np.ndarray
     x = {"q": rng.uniform(lo, hi, (batch, r.n_q)), "qd": rng.uniform(-1, 1, (batch, r.n_q)),
          "qdd": rng.uniform(-1, 1, (batch, r.n_q)), "tau": rng.uniform(-5, 5, (batch, r.n_q))}
     x["q"][-1], x["qd"][-1] = np.clip(0.0, lo, hi), 0.0
+    if any(n == "target" for n, _ in p.inputs):  # a reachable pose: unit quaternion, nearby point
+        quat = rng.normal(size=(batch, 4))
+        x["target"] = np.concatenate([quat / np.linalg.norm(quat, axis=1, keepdims=True),
+                                      rng.uniform(-0.5, 0.5, (batch, 3))], 1)
+        x["lam"] = rng.uniform(1e-3, 1.0, (batch, 1))
     for n, length in p.inputs:
         if n == "boxes":  # [centre, orthonormal axes, half-extents] per box, the same for the batch
             m = length // 15

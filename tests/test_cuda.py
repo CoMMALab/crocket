@@ -21,9 +21,9 @@ from crocket import cuda, harness
 from robots import SMALL, options, robot
 
 ALGORITHMS = ["rnea", "crba", "aba", "rnea_derivatives", "frame_poses", "frame_jacobian",
-              "sphere_collision"]
+              "sphere_collision", "ik_lm_step"]
 CASES = ([(r, a) for r in SMALL for a in ALGORITHMS if not (r == "fr3" and a == "aba")]
-         + [("grid_g1", a) for a in ("rnea", "crba", "frame_jacobian", "sphere_collision")])
+         + [("grid_g1", a) for a in ("rnea", "crba", "frame_jacobian", "sphere_collision", "ik_lm_step")])
 COOPERATIVE = [cuda.Variant("split", 8), cuda.Variant("warp", 32), cuda.Variant("block", 128)]
 
 
