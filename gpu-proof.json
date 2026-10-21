@@ -1,7 +1,7 @@
 {
   "environment": {
     "gpu_info": {
-      "cuda_visible_devices": "1",
+      "cuda_visible_devices": "0",
       "devices": [
         {
           "compute_capability": "8.6",
@@ -45,12 +45,12 @@
   },
   "fingerprint": {
     "algorithm": "sha256-manifest-v2",
-    "digest": "015559ef7d60e3cdb0ce368151d8cadb40ec821a70ae9a8cd0dd7101d42d84c2",
+    "digest": "f2fa0217b2bca4fe810b28bb23ae814c9089d4e7196edcc7d74587aebb935b16",
     "excluded_paths": [
       "gpu-proof.json"
     ],
     "extra_paths": [],
-    "file_count": 21,
+    "file_count": 20,
     "included_paths": [
       "pyproject.toml",
       "python/crocket",
@@ -61,14 +61,14 @@
   "mode": "local",
   "repo": {
     "branch": "main",
-    "commit_sha": "a216b99e873046c9313e292eb6298a972f826092",
+    "commit_sha": "782528d211bd1496cf2656d0fc775f41ea23187f",
     "dirty": false,
     "github_username": "saiccoumar",
     "remote_url": "https://github.com/saiccoumar/cricket2.git"
   },
   "schema_version": "3",
   "session": {
-    "ended_at": "2026-10-17T17:32:37Z",
+    "ended_at": "2026-10-21T13:43:35Z",
     "node_ids": [
       "tests/test_cuda.py::test_tiers_match_interpreter[panda-rnea-float32]",
       "tests/test_cuda.py::test_tiers_match_interpreter[panda-rnea-float64]",
@@ -82,6 +82,10 @@
       "tests/test_cuda.py::test_tiers_match_interpreter[panda-frame_poses-float64]",
       "tests/test_cuda.py::test_tiers_match_interpreter[panda-frame_jacobian-float32]",
       "tests/test_cuda.py::test_tiers_match_interpreter[panda-frame_jacobian-float64]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[panda-sphere_collision-float32]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[panda-sphere_collision-float64]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[panda-ik_lm_step-float32]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[panda-ik_lm_step-float64]",
       "tests/test_cuda.py::test_tiers_match_interpreter[fr3-rnea-float32]",
       "tests/test_cuda.py::test_tiers_match_interpreter[fr3-rnea-float64]",
       "tests/test_cuda.py::test_tiers_match_interpreter[fr3-crba-float32]",
@@ -92,6 +96,10 @@
       "tests/test_cuda.py::test_tiers_match_interpreter[fr3-frame_poses-float64]",
       "tests/test_cuda.py::test_tiers_match_interpreter[fr3-frame_jacobian-float32]",
       "tests/test_cuda.py::test_tiers_match_interpreter[fr3-frame_jacobian-float64]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[fr3-sphere_collision-float32]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[fr3-sphere_collision-float64]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[fr3-ik_lm_step-float32]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[fr3-ik_lm_step-float64]",
       "tests/test_cuda.py::test_tiers_match_interpreter[ur5-rnea-float32]",
       "tests/test_cuda.py::test_tiers_match_interpreter[ur5-rnea-float64]",
       "tests/test_cuda.py::test_tiers_match_interpreter[ur5-crba-float32]",
@@ -104,6 +112,10 @@
       "tests/test_cuda.py::test_tiers_match_interpreter[ur5-frame_poses-float64]",
       "tests/test_cuda.py::test_tiers_match_interpreter[ur5-frame_jacobian-float32]",
       "tests/test_cuda.py::test_tiers_match_interpreter[ur5-frame_jacobian-float64]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[ur5-sphere_collision-float32]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[ur5-sphere_collision-float64]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[ur5-ik_lm_step-float32]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[ur5-ik_lm_step-float64]",
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-rnea-float32]",
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-rnea-float64]",
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-crba-float32]",
@@ -116,6 +128,10 @@
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-frame_poses-float64]",
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-frame_jacobian-float32]",
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-frame_jacobian-float64]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-sphere_collision-float32]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-sphere_collision-float64]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-ik_lm_step-float32]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-ik_lm_step-float64]",
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-rnea-float32]",
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-rnea-float64]",
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-crba-float32]",
@@ -128,60 +144,84 @@
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-frame_poses-float64]",
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-frame_jacobian-float32]",
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-frame_jacobian-float64]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-sphere_collision-float32]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-sphere_collision-float64]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-ik_lm_step-float32]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-ik_lm_step-float64]",
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-rnea-float32]",
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-rnea-float64]",
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-crba-float32]",
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-crba-float64]",
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-frame_jacobian-float32]",
       "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-frame_jacobian-float64]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-sphere_collision-float32]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-sphere_collision-float64]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-ik_lm_step-float32]",
+      "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-ik_lm_step-float64]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[panda-rnea]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[panda-crba]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[panda-aba]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[panda-rnea_derivatives]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[panda-frame_poses]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[panda-frame_jacobian]",
+      "tests/test_cuda.py::test_tiers_bit_identical_without_fma[panda-sphere_collision]",
+      "tests/test_cuda.py::test_tiers_bit_identical_without_fma[panda-ik_lm_step]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[fr3-rnea]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[fr3-crba]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[fr3-rnea_derivatives]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[fr3-frame_poses]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[fr3-frame_jacobian]",
+      "tests/test_cuda.py::test_tiers_bit_identical_without_fma[fr3-sphere_collision]",
+      "tests/test_cuda.py::test_tiers_bit_identical_without_fma[fr3-ik_lm_step]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[ur5-rnea]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[ur5-crba]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[ur5-aba]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[ur5-rnea_derivatives]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[ur5-frame_poses]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[ur5-frame_jacobian]",
+      "tests/test_cuda.py::test_tiers_bit_identical_without_fma[ur5-sphere_collision]",
+      "tests/test_cuda.py::test_tiers_bit_identical_without_fma[ur5-ik_lm_step]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_iiwa14-rnea]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_iiwa14-crba]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_iiwa14-aba]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_iiwa14-rnea_derivatives]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_iiwa14-frame_poses]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_iiwa14-frame_jacobian]",
+      "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_iiwa14-sphere_collision]",
+      "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_iiwa14-ik_lm_step]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_go2-rnea]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_go2-crba]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_go2-aba]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_go2-rnea_derivatives]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_go2-frame_poses]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_go2-frame_jacobian]",
+      "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_go2-sphere_collision]",
+      "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_go2-ik_lm_step]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_g1-rnea]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_g1-crba]",
       "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_g1-frame_jacobian]",
+      "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_g1-sphere_collision]",
+      "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_g1-ik_lm_step]",
       "tests/test_cuda.py::test_group_size_invariance[panda-rnea]",
       "tests/test_cuda.py::test_group_size_invariance[grid_go2-crba]",
       "tests/test_cuda.py::test_group_size_invariance[fr3-rnea_derivatives]",
       "tests/test_cuda.py::test_large_trace_guard[grid_g1-rnea]",
       "tests/test_cuda.py::test_large_trace_guard[panda-rnea_derivatives]",
+      "tests/test_cuda.py::test_large_trace_guard[grid_g1-sphere_collision]",
+      "tests/test_cuda.py::test_unsplit_sphere_collision[panda]",
+      "tests/test_cuda.py::test_unsplit_sphere_collision[grid_g1]",
       "tests/test_cuda.py::test_tune_picks_a_validated_layout_and_caches_it"
     ],
-    "outcome": "failed",
+    "outcome": "passed",
     "pytest_args": [
       "tests/test_cuda.py",
-      "--gpu-proof-enable"
+      "--gpu-proof-enable",
+      "-q"
     ],
-    "started_at": "2026-10-17T17:32:23Z"
+    "started_at": "2026-10-21T13:43:10Z"
   },
   "signature": {
-    "value": "f8VG6qI0kXRan/sXehvK6Yv4AJJZD2XHdDygdMRdCVKbwUy+1kHv6NYfR+AoPk7oe1M6CfKJu9OGzy8S/aTtCA=="
+    "value": "Gtf1iOBnrgqvbkUv6Sqc/iNX2MpDhsbH0eZHcvqBHwvzuWqehwvGUYK30Xb+OJDJHUB2x1onJ7mUlXuvkJkcBw=="
   },
   "signer": {
     "algorithm": "ed25519",
@@ -192,714 +232,987 @@
   "tests": [
     {
       "checks": [],
-      "duration_s": 1.1202,
+      "duration_s": 1.0573,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[panda-rnea-float32]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0396,
+      "duration_s": 0.0295,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[panda-rnea-float64]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0508,
+      "duration_s": 0.0303,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[panda-crba-float32]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0513,
+      "duration_s": 0.0308,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[panda-crba-float64]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.1047,
+      "duration_s": 0.0762,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[panda-aba-float32]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.1061,
+      "duration_s": 0.0762,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[panda-aba-float64]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.5186,
+      "duration_s": 0.4554,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[panda-rnea_derivatives-float32]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.4892,
+      "duration_s": 0.4326,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[panda-rnea_derivatives-float64]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0151,
+      "duration_s": 0.0106,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[panda-frame_poses-float32]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0154,
+      "duration_s": 0.0108,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[panda-frame_poses-float64]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0164,
+      "duration_s": 0.0117,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[panda-frame_jacobian-float32]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0166,
+      "duration_s": 0.0123,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[panda-frame_jacobian-float64]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.5144,
+      "duration_s": 0.0495,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[panda-sphere_collision-float32]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0786,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[panda-sphere_collision-float64]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0323,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[panda-ik_lm_step-float32]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0327,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[panda-ik_lm_step-float64]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.4884,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[fr3-rnea-float32]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0451,
+      "duration_s": 0.0422,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[fr3-rnea-float64]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0506,
+      "duration_s": 0.079,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[fr3-crba-float32]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0503,
+      "duration_s": 0.0463,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[fr3-crba-float64]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 1.0129,
+      "duration_s": 0.9818,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[fr3-rnea_derivatives-float32]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.9754,
+      "duration_s": 1.0015,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[fr3-rnea_derivatives-float64]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0142,
+      "duration_s": 0.0118,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[fr3-frame_poses-float32]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0135,
+      "duration_s": 0.0119,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[fr3-frame_poses-float64]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0155,
+      "duration_s": 0.0129,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[fr3-frame_jacobian-float32]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0153,
+      "duration_s": 0.0134,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[fr3-frame_jacobian-float64]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.4824,
+      "duration_s": 0.0645,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[fr3-sphere_collision-float32]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.094,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[fr3-sphere_collision-float64]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.035,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[fr3-ik_lm_step-float32]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0353,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[fr3-ik_lm_step-float64]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.4633,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[ur5-rnea-float32]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0262,
+      "duration_s": 0.0247,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[ur5-rnea-float64]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0311,
+      "duration_s": 0.0283,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[ur5-crba-float32]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.031,
+      "duration_s": 0.0286,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[ur5-crba-float64]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.1056,
+      "duration_s": 0.1006,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[ur5-aba-float32]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0713,
+      "duration_s": 0.067,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[ur5-aba-float64]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.2688,
+      "duration_s": 0.2681,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[ur5-rnea_derivatives-float32]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.2648,
+      "duration_s": 0.312,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[ur5-rnea_derivatives-float64]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0177,
+      "duration_s": 0.0162,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[ur5-frame_poses-float32]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0175,
+      "duration_s": 0.0166,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[ur5-frame_poses-float64]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0121,
+      "duration_s": 0.0113,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[ur5-frame_jacobian-float32]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0122,
+      "duration_s": 0.0119,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[ur5-frame_jacobian-float64]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0002,
+      "duration_s": 0.0478,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[ur5-sphere_collision-float32]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0461,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[ur5-sphere_collision-float64]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0283,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[ur5-ik_lm_step-float32]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0289,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[ur5-ik_lm_step-float64]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.6935,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-rnea-float32]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0285,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-rnea-float64]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0294,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-crba-float32]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0297,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-crba-float64]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.074,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-aba-float32]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0736,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-aba-float64]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.4513,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-rnea_derivatives-float32]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.4544,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-rnea_derivatives-float64]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0089,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-frame_poses-float32]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.009,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-frame_poses-float64]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0116,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-frame_jacobian-float32]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0119,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-frame_jacobian-float64]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.05,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-sphere_collision-float32]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0511,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-sphere_collision-float64]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0327,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-ik_lm_step-float32]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0333,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_iiwa14-ik_lm_step-float64]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.7753,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-rnea-float32]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0414,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-rnea-float64]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0279,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-crba-float32]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0288,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-crba-float64]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0823,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-aba-float32]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0821,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-aba-float64]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.301,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-rnea_derivatives-float32]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.2709,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-rnea_derivatives-float64]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0197,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-frame_poses-float32]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0205,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-frame_poses-float64]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0069,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-frame_jacobian-float32]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.007,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-frame_jacobian-float64]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.1183,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-sphere_collision-float32]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0819,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-sphere_collision-float64]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0226,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-ik_lm_step-float32]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0231,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_go2-ik_lm_step-float64]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 2.1036,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-rnea-float32]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.1949,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-rnea-float64]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.3229,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-crba-float32]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.2921,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-crba-float64]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0215,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-frame_jacobian-float32]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0224,
       "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-frame_jacobian-float64]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0332,
+      "duration_s": 0.3063,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-sphere_collision-float32]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.3622,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-sphere_collision-float64]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0527,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-ik_lm_step-float32]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0533,
+      "node_id": "tests/test_cuda.py::test_tiers_match_interpreter[grid_g1-ik_lm_step-float64]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0239,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[panda-rnea]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0403,
+      "duration_s": 0.0258,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[panda-crba]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0886,
+      "duration_s": 0.0669,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[panda-aba]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.4678,
+      "duration_s": 0.4312,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[panda-rnea_derivatives]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.013,
+      "duration_s": 0.0089,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[panda-frame_poses]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0141,
+      "duration_s": 0.0101,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[panda-frame_jacobian]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0378,
+      "duration_s": 0.0417,
+      "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[panda-sphere_collision]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0276,
+      "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[panda-ik_lm_step]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0358,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[fr3-rnea]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0399,
+      "duration_s": 0.0384,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[fr3-crba]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.9135,
+      "duration_s": 0.917,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[fr3-rnea_derivatives]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0125,
+      "duration_s": 0.0099,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[fr3-frame_poses]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0131,
+      "duration_s": 0.0109,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[fr3-frame_jacobian]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.022,
+      "duration_s": 0.0535,
+      "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[fr3-sphere_collision]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0638,
+      "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[fr3-ik_lm_step]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0201,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[ur5-rnea]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.026,
+      "duration_s": 0.0236,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[ur5-crba]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0605,
+      "duration_s": 0.0581,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[ur5-aba]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.2771,
+      "duration_s": 0.2393,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[ur5-rnea_derivatives]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.015,
+      "duration_s": 0.0119,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[ur5-frame_poses]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0113,
+      "duration_s": 0.0087,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[ur5-frame_jacobian]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0358,
+      "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[ur5-sphere_collision]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0239,
+      "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[ur5-ik_lm_step]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0238,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_iiwa14-rnea]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0627,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_iiwa14-crba]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0639,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_iiwa14-aba]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.378,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_iiwa14-rnea_derivatives]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0081,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_iiwa14-frame_poses]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0107,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_iiwa14-frame_jacobian]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0439,
+      "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_iiwa14-sphere_collision]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0939,
+      "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_iiwa14-ik_lm_step]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0358,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_go2-rnea]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.026,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_go2-crba]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0773,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_go2-aba]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.2509,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_go2-rnea_derivatives]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0165,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_go2-frame_poses]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0062,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_go2-frame_jacobian]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0664,
+      "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_go2-sphere_collision]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0197,
+      "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_go2-ik_lm_step]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.2079,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_g1-rnea]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.2497,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_g1-crba]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0184,
       "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_g1-frame_jacobian]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.1376,
+      "duration_s": 0.2846,
+      "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_g1-sphere_collision]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0474,
+      "node_id": "tests/test_cuda.py::test_tiers_bit_identical_without_fma[grid_g1-ik_lm_step]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0982,
       "node_id": "tests/test_cuda.py::test_group_size_invariance[panda-rnea]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0002,
+      "duration_s": 0.1814,
       "node_id": "tests/test_cuda.py::test_group_size_invariance[grid_go2-crba]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 2.9077,
+      "duration_s": 2.9685,
       "node_id": "tests/test_cuda.py::test_group_size_invariance[fr3-rnea_derivatives]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0002,
+      "duration_s": 0.3861,
       "node_id": "tests/test_cuda.py::test_large_trace_guard[grid_g1-rnea]",
-      "outcome": "failed",
+      "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.9731,
+      "duration_s": 0.8459,
       "node_id": "tests/test_cuda.py::test_large_trace_guard[panda-rnea_derivatives]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.4308,
+      "duration_s": 0.5428,
+      "node_id": "tests/test_cuda.py::test_large_trace_guard[grid_g1-sphere_collision]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0217,
+      "node_id": "tests/test_cuda.py::test_unsplit_sphere_collision[panda]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1144,
+      "node_id": "tests/test_cuda.py::test_unsplit_sphere_collision[grid_g1]",
+      "outcome": "passed",
+      "phase": "call"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.3264,
       "node_id": "tests/test_cuda.py::test_tune_picks_a_validated_layout_and_caches_it",
       "outcome": "passed",
       "phase": "call"
