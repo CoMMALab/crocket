@@ -4,7 +4,9 @@ Same targets (FK of random in-limit configurations), seeds, weights (position 50
 10) and iteration cap (60) for every method:
 
 * ``grim``    GRiM ``ls_ik`` (Levenberg-Marquardt kernel) on GRiD-style baked tables
-* ``crocket`` the same kernel built ``traced=True`` (crocket's straight-line FK and Jacobian)
+* ``crocket`` crocket's traced LM step (``ik_lm_step``: FK, Jacobian, residual, damped 6x6
+              Cholesky solve and joint-limit projection in one traced function) inside a CUDA
+              accept/reject loop with the same settings (ik/crocket_ik.py)
 * ``pyroki``  pyroki's own IK formulation (``pose_cost_analytic_jac`` + ``limit_constraint``)
               solved by jaxls (dense Cholesky LM), vmapped over problems x seeds
 
@@ -122,8 +124,13 @@ def run_pyroki(robot, seeds, target):
     return ms, np.asarray(out)[..., inv], "vmap"
 
 
-RUNNERS = {"grim": lambda r, s, t: run_grim(r, s, t, False),
-           "crocket": lambda r, s, t: run_grim(r, s, t, True), "pyroki": run_pyroki}
+def run_crocket(robot, seeds, target):
+    import crocket_ik
+    return crocket_ik.run(robot, seeds, target, EE[robot], MAX_ITER, POS_W, ORI_W)
+
+
+RUNNERS = {"grim": lambda r, s, t: run_grim(r, s, t, False), "crocket": run_crocket,
+           "pyroki": run_pyroki}
 
 
 def main():
