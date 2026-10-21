@@ -7,6 +7,24 @@ Panda (7 DOF), Rethink Baxter (14/15 DOF, two arms) and Unitree G1 with hands (4
 bash benchmarks/run_all.sh        # picks a free GPU, runs everything, rewrites the tables below
 ```
 
+## Findings
+
+- **FK alone:** crocket gains nothing over GRiM's baked tables (each runs inside the same JAX
+  sphere placement). pRRTC and cuRobo are fastest at B = 16384 (0.19-0.65 ms); pyroki is
+  8-10x slower.
+- **Fused FK + collision:** crocket's `sphere_collision` is fastest at B = 16384 (0.31-0.53 ms vs
+  pRRTC's 0.45-0.85). pRRTC is 1.5x faster at B <= 1024 on Panda and Baxter. GRiM with traced FK
+  gains nothing over GRiM; cuRobo (4.4-5.9 ms) and pyroki (7-13 ms) trail.
+- **IK:** crocket's traced LM step takes 1.6-2.8 ms at 1024 x 8 seeds, against GRiM's 70-207 ms
+  and pyroki's 0.8-5.6 s. Success is within 1.6 points of GRiM's; pyroki solves slightly more
+  (98-100%).
+- **Dynamics:** at B >= 1024 crocket leads GRiD by up to 62x (inverse dynamics at B = 16384).
+  At B <= 128 GRiD is mostly faster, most of all on g1 derivatives. GRiD runs out of memory on
+  g1 at B = 16384, and so does frax's autodiff derivative. At large batch frax is as fast as GRiD
+  or faster for ID and CRBA.
+- **Lesson:** trace the whole computation. Swapping crocket's FK into hand-written kernels
+  gained at most 3x; tracing the step or the fused check gained up to 74x.
+
 ## Protocol
 
 Every method gets the same float32 inputs, cached once in `results/inputs/` (so methods in
