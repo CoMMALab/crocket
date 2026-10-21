@@ -20,9 +20,10 @@ import crocket
 from crocket import cuda, harness
 from robots import SMALL, options, robot
 
-ALGORITHMS = ["rnea", "crba", "aba", "rnea_derivatives", "frame_poses", "frame_jacobian"]
+ALGORITHMS = ["rnea", "crba", "aba", "rnea_derivatives", "frame_poses", "frame_jacobian",
+              "sphere_collision"]
 CASES = ([(r, a) for r in SMALL for a in ALGORITHMS if not (r == "fr3" and a == "aba")]
-         + [("grid_g1", a) for a in ("rnea", "crba", "frame_jacobian")])
+         + [("grid_g1", a) for a in ("rnea", "crba", "frame_jacobian", "sphere_collision")])
 COOPERATIVE = [cuda.Variant("split", 8), cuda.Variant("warp", 32), cuda.Variant("block", 128)]
 
 
@@ -73,7 +74,8 @@ def test_group_size_invariance(robot_name, name):
             np.testing.assert_array_equal(got[k], ref[k])
 
 
-@pytest.mark.parametrize("robot_name,name", [("grid_g1", "rnea"), ("panda", "rnea_derivatives")])
+@pytest.mark.parametrize("robot_name,name", [("grid_g1", "rnea"), ("panda", "rnea_derivatives"),
+                                             ("grid_g1", "sphere_collision")])
 def test_large_trace_guard(robot_name, name):
     """Over the statement budget, every tier is split into __noinline__ stage functions; those
     builds must agree between ptxas -O0 and -O3."""
@@ -88,6 +90,21 @@ def test_large_trace_guard(robot_name, name):
         b, _ = slow.run(i, x)
         for k in a:
             np.testing.assert_array_equal(a[k], b[k], err_msg=f"{cases[i][1]} {k}")
+
+
+@pytest.mark.parametrize("robot_name", ["panda", "grid_g1"])
+def test_unsplit_sphere_collision(robot_name):
+    """sphere_collision as one straight-line function (no stage split; the benchmark's fastest
+    build): against the interpreter, and ptxas -O0 against -O3."""
+    p = _trace(robot_name, "sphere_collision")
+    cases = [(p, cuda.Variant("thread"))]
+    fast = harness.build(cases, flags=("-O3", "-fmad=false"), budget=10 ** 9)
+    slow = harness.build(cases, flags=("-O3", "-fmad=false", "-Xptxas=-O0"), budget=10 ** 9)
+    harness.validate(fast)
+    x = harness.sample_inputs(p, 256)
+    a, _ = fast.run(0, x)
+    b, _ = slow.run(0, x)
+    np.testing.assert_array_equal(a["margin"], b["margin"])
 
 
 def test_tune_picks_a_validated_layout_and_caches_it():

@@ -45,4 +45,16 @@ def options(r: crocket.Robot, name: str) -> dict:
         return {"frames": tuple(r.frames)}
     if name == "frame_jacobian":
         return {"frame": max(r.joints, key=lambda j: j.depth).name}
+    if name == "sphere_collision":
+        return {"spheres": sphere_set(r), "n_boxes": 3}
     return {}
+
+
+def sphere_set(r: crocket.Robot) -> tuple:
+    """Two off-centre spheres on every joint frame and one on the base: every frame's pose and
+    every centre component reach the margin."""
+    base = next(iter(sorted(r.root_links)))
+    spheres = [(base, (0.02, -0.01, 0.05), 0.08)]
+    for k, j in enumerate(r.joints):
+        spheres += [(j.name, (0.03, 0.02 * (k % 3), 0.06), 0.05), (j.name, (-0.04, 0.05, -0.02), 0.04)]
+    return tuple(spheres)

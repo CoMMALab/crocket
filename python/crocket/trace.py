@@ -163,6 +163,15 @@ class Scalar(Value):
     def sqrt(self):
         return self._op("sqrt", self)
 
+    def abs(self):
+        return self._op("abs", self)
+
+    def maximum(self, o):
+        return self._op("max", self, self._lift(o))
+
+    def minimum(self, o):
+        return self._op("min", self, self._lift(o))
+
 
 class Vec3(Value):
     def cross(self, o):
@@ -455,20 +464,21 @@ class Program:
 class Algorithm:
     name: str
     fn: object
-    inputs: tuple[str, ...]
+    inputs: tuple  # name (n_q long) or (name, options -> length)
     outputs: tuple[str, ...]
 
     def trace(self, robot: Robot, **options) -> Program:
         t = Tracer(robot)
         view = RobotView(t)
+        sizes = [(i, robot.n_q) if isinstance(i, str) else (i[0], i[1](options)) for i in self.inputs]
         args = [[Scalar(t, t.g.node("input", "Scalar", (), lambda i=i, nm=nm: t.g.input(nm, i), {}, key=(nm, i)))
-                 for i in range(robot.n_q)] for nm in self.inputs]
+                 for i in range(n)] for nm, n in sizes]
         result = self.fn(view, *args, **options)
         result = result if isinstance(result, tuple) else (result,)
         outputs = []
         for name, value in zip(self.outputs, result):
             outputs.append((name, _flatten(value)))
-        return Program(self.name, robot, t.g, [(nm, robot.n_q) for nm in self.inputs], outputs)
+        return Program(self.name, robot, t.g, sizes, outputs)
 
 
 def _flatten(value) -> np.ndarray:
@@ -482,8 +492,9 @@ def _flatten(value) -> np.ndarray:
     raise TypeError(f"cannot output {type(value).__name__}")
 
 
-def algorithm(inputs: tuple[str, ...], outputs: tuple[str, ...]):
-    """Register ``fn(robot, *inputs, **options)`` as a traceable algorithm."""
+def algorithm(inputs: tuple, outputs: tuple[str, ...]):
+    """Register ``fn(robot, *inputs, **options)`` as a traceable algorithm. An input is a name
+    (``n_q`` scalars) or ``(name, options -> length)``."""
     def wrap(fn):
         ALGORITHMS[fn.__name__] = Algorithm(fn.__name__, fn, inputs, outputs)
         return functools.wraps(fn)(fn)

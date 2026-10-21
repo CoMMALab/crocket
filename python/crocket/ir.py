@@ -28,6 +28,9 @@ _FOLD = {
     "sin": math.sin,
     "cos": math.cos,
     "sqrt": math.sqrt,
+    "abs": abs,
+    "max": np.maximum,
+    "min": np.minimum,
 }
 _NUMPY = {"sin": np.sin, "cos": np.cos, "sqrt": np.sqrt}
 
@@ -125,6 +128,15 @@ class Graph:
             (a,) = args
             if self.op[a] == "neg":
                 return self.args[a][0]
+        elif op == "abs":
+            (a,) = args
+            if self.op[a] in ("neg", "abs"):
+                return self.s("abs", self.args[a][0])
+        elif op in ("max", "min"):
+            a, b = args
+            if a == b:
+                return a
+            args = tuple(sorted(args))
         return self._add((op, args), op, args, None)
 
     # ---- spatial level -------------------------------------------------------------------

@@ -141,8 +141,9 @@ class Robot:
             parent = -1 if f.parent_name in (-1, None) else by_name[f.parent_name]
             self.frames[f.name] = Frame(f.name, parent, _clean(np.array(f.Xmat_hom, dtype=float)))
         # link -> the joint whose child it is, so a frame can also be named by its link
-        self.link_joint = {el.find("child").get("link"): el.get("name")
-                           for el in ET.parse(urdf).getroot().findall("joint")}
+        root = ET.parse(urdf).getroot()
+        self.link_joint = {el.find("child").get("link"): el.get("name") for el in root.findall("joint")}
+        self.root_links = {l.get("name") for l in root.findall("link")} - set(self.link_joint)
         # q's columns, by the joint that owns each (mimic joints own none)
         self.joint_names = [""] * self.n_q
         for j in self.joints:
@@ -155,6 +156,8 @@ class Robot:
             return self.frames[name]
         if self.link_joint.get(name) in self.frames:
             return self.frames[self.link_joint[name]]
+        if name in self.root_links:  # the base link is the world frame
+            return Frame(name, -1, np.eye(4))
         raise ValueError(f"Invalid EE name {name!r}: no joint or link of that name")
 
     def X(self, j: int, q: float) -> np.ndarray:

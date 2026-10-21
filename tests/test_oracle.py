@@ -129,6 +129,36 @@ def test_kinematics_vs_pinocchio(robot_name):
         _close(J["pose"][b][:3], data.oMf[model.getFrameId(ee, pin.JOINT)].translation)
 
 
+@pytest.mark.parametrize("robot_name", ROBOTS)
+def test_sphere_collision_vs_pinocchio(robot_name):
+    """The fused margin against Pinocchio's frame poses and a direct sphere-box distance."""
+    from robots import sphere_set
+    r = robot(robot_name)
+    spheres = sphere_set(r)
+    rng = np.random.default_rng(1)
+    axes = np.linalg.qr(rng.normal(size=(3, 3, 3)))[0]
+    boxes = np.concatenate([rng.uniform(-0.6, 0.6, (3, 3)), axes.reshape(3, 9), rng.uniform(0.05, 0.3, (3, 3))], 1)
+    prog = crocket.trace(r, "sphere_collision", spheres=spheres, n_boxes=3)
+    x = inputs(r, batch=16)
+    got = prog.evaluate(q=x["q"], boxes=np.tile(boxes.reshape(-1), (16, 1)))["margin"][:, 0]
+    model, cols, _ = _pinocchio(r)
+    data = model.createData()
+    for b in range(16):
+        q = np.zeros(model.nq)
+        q[cols] = x["q"][b]
+        pin.framesForwardKinematics(model, data, q)
+        want = np.inf
+        for name, c, rad in spheres:
+            fid = (model.getFrameId(name, pin.BODY) if name in r.root_links else
+                   model.getFrameId(name, pin.JOINT if any(j.name == name for j in r.joints) else pin.FIXED_JOINT))
+            p = data.oMf[fid].act(np.asarray(c, float))
+            for box in boxes:
+                local = box[3:12].reshape(3, 3) @ (p - box[:3])
+                d = np.maximum(np.abs(local) - box[12:], 0)
+                want = min(want, d @ d - rad ** 2)
+        _close(got[b], want)
+
+
 @pytest.mark.parametrize("robot_name", ["panda", "fr3"])
 def test_derivatives_match_finite_differences(robot_name):
     """Checks the analytical tangents against the traced RNEA itself (mimic joints included)."""

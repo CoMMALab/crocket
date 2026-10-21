@@ -16,8 +16,9 @@ parallel, following the kinematic tree. Parallelism tiers are modeled after GLAS
 | backend | `cuda.py` | one header per robot: `<alg>_thread / _split / _warp / _block`, templated on `T`, `y[i * ys]` outputs, `__noinline__` stage functions over the statement budget |
 | tuning | `tune.py`, `harness.py` | compile, validate and time candidate layouts; the winner is cached per robot |
 
-Algorithms: `frame_poses`, `frame_jacobian` (LOCAL_WORLD_ALIGNED), `rnea`, `crba`, `aba`, and
-`rnea_derivatives` (analytical). Joints: revolute, prismatic, fixed, and mimic (except ABA).
+Algorithms: `frame_poses`, `frame_jacobian` (LOCAL_WORLD_ALIGNED), `rnea`, `crba`, `aba`,
+`rnea_derivatives` (analytical), and `sphere_collision` (fused FK + sphere-vs-box environment
+check: `spheres` folded in as constants, `n_boxes` boxes per call, output `min(d² - r²)`). Joints: revolute, prismatic, fixed, and mimic (except ABA).
 
 ## Usage
 

@@ -2,7 +2,7 @@
 
 Each (algorithm, variant) gets a ``__global__`` wrapper and an ``extern "C"`` host entry
 ``run_<i>(inputs, outputs, batch, block, reps) -> ms``: inputs packed per problem
-``[problem][input][n_q]``, outputs structure-of-arrays (``ys = batch``), float or double.
+``[problem][inputs, concatenated]``, outputs structure-of-arrays (``ys = batch``), float or double.
 """
 
 from __future__ import annotations
@@ -35,8 +35,9 @@ def nvcc_version() -> str:
 
 
 def _kernel(i: int, p: Program, v: cuda.Variant, ns: str, T: str) -> str:
-    n_in = len(p.inputs)
-    ins = ", ".join(f"x + {k} * r::n_q" for k in range(n_in))
+    offsets = np.cumsum([0] + [n for _, n in p.inputs])
+    ins = ", ".join(f"x + {int(o)}" for o in offsets[:-1])
+    stride = int(offsets[-1])
     outs, off = [], 0
     for name, ids in p.outputs:
         outs.append(f"y + {off} * batch + b")
@@ -45,7 +46,7 @@ def _kernel(i: int, p: Program, v: cuda.Variant, ns: str, T: str) -> str:
     fn = f"r::{p.name}_{v.tier}<{T}>"
     if v.tier == "thread":
         body = (f"    const int b = blockIdx.x * blockDim.x + threadIdx.x;\n    if (b >= batch) return;\n"
-                f"    const {T}* x = X + (size_t)b * {n_in} * r::n_q;\n    {fn}({ins}, {outs}, batch);\n")
+                f"    const {T}* x = X + (size_t)b * {stride};\n    {fn}({ins}, {outs}, batch);\n")
         launch, smem, scratch = "(batch + block - 1) / block, block", "0", "0"
     elif v.tier == "split":
         # 32 problems per block; lanes past the batch redo the last problem (identical writes)
@@ -54,7 +55,7 @@ def _kernel(i: int, p: Program, v: cuda.Variant, ns: str, T: str) -> str:
                 f"    const int b = b0 < batch ? b0 : batch - 1;\n"
                 f"    extern __shared__ unsigned char raw[];\n"
                 f"    {T}* s = G ? G + (size_t)blockIdx.x * r::{p.name}_split_smem : ({T}*)raw;\n"
-                f"    const {T}* x = X + (size_t)b * {n_in} * r::n_q;\n    {fn}({ins}, {outs}, s, batch);\n")
+                f"    const {T}* x = X + (size_t)b * {stride};\n    {fn}({ins}, {outs}, s, batch);\n")
         launch = "(batch + 31) / 32, 32 * r::" + f"{p.name}_split_warps"
         smem = f"r::{p.name}_split_smem * sizeof({T})"
         scratch = f"(size_t)((batch + 31) / 32) * r::{p.name}_split_smem"
@@ -64,7 +65,7 @@ def _kernel(i: int, p: Program, v: cuda.Variant, ns: str, T: str) -> str:
                 f"    extern __shared__ unsigned char raw[];\n"
                 f"    {T}* s = (G ? G + (size_t)blockIdx.x * warps * r::{p.name}_warp_smem : ({T}*)raw)\n"
                 f"        + (threadIdx.x >> 5) * r::{p.name}_warp_smem;\n"
-                f"    const {T}* x = X + (size_t)b * {n_in} * r::n_q;\n    {fn}({ins}, {outs}, s, batch);\n")
+                f"    const {T}* x = X + (size_t)b * {stride};\n    {fn}({ins}, {outs}, s, batch);\n")
         launch = "(batch + block / 32 - 1) / (block / 32), block"
         smem = f"(block / 32) * r::{p.name}_warp_smem * sizeof({T})"
         scratch = f"(size_t)(batch + block / 32 - 1) / (block / 32) * (block / 32) * r::{p.name}_warp_smem"
@@ -72,7 +73,7 @@ def _kernel(i: int, p: Program, v: cuda.Variant, ns: str, T: str) -> str:
         body = (f"    const int b = blockIdx.x;\n"
                 f"    extern __shared__ unsigned char raw[];\n"
                 f"    {T}* s = G ? G + (size_t)b * r::{p.name}_block_smem : ({T}*)raw;\n"
-                f"    const {T}* x = X + (size_t)b * {n_in} * r::n_q;\n    {fn}({ins}, {outs}, s, batch);\n")
+                f"    const {T}* x = X + (size_t)b * {stride};\n    {fn}({ins}, {outs}, s, batch);\n")
         launch = f"batch, r::{p.name}_block_threads"
         smem = f"r::{p.name}_block_smem * sizeof({T})"
         scratch = f"(size_t)batch * r::{p.name}_block_smem"
@@ -82,7 +83,7 @@ __global__ void k{i}(const {T}* __restrict__ X, {T}* __restrict__ y, int batch, 
 {body}}}
 extern "C" float run_{i}(const {T}* X, {T}* Y, int batch, int block, int reps)
 {{
-    const size_t nx = (size_t)batch * {n_in} * r::n_q, ny = (size_t)batch * {off};
+    const size_t nx = (size_t)batch * {stride}, ny = (size_t)batch * {off};
     {T} *dx, *dy;
     cudaMalloc(&dx, nx * sizeof({T}));
     cudaMalloc(&dy, ny * sizeof({T}));
@@ -126,10 +127,10 @@ class Built:
     dtype: type
 
     def run(self, i: int, inputs: dict[str, np.ndarray], block: int = 128, reps: int = 0):
-        """Run case ``i`` on (B, n_q) inputs; returns (name -> (B, len) outputs, ms per launch)."""
+        """Run case ``i`` on (B, len) inputs; returns (name -> (B, len) outputs, ms per launch)."""
         p, _ = self.cases[i]
         batch = next(iter(inputs.values())).shape[0]
-        X = np.ascontiguousarray(np.stack([inputs[n] for n, _ in p.inputs], axis=1), self.dtype)
+        X = np.ascontiguousarray(np.concatenate([inputs[n] for n, _ in p.inputs], axis=1), self.dtype)
         n_out = sum(len(ids) for _, ids in p.outputs)
         Y = np.zeros((n_out, batch), self.dtype)
         ptr = ctypes.POINTER(ctypes.c_float if self.dtype == np.float32 else ctypes.c_double)
@@ -200,6 +201,13 @@ def sample_inputs(p: Program, batch: int, seed: int = 0) -> dict[str, np.ndarray
     x = {"q": rng.uniform(lo, hi, (batch, r.n_q)), "qd": rng.uniform(-1, 1, (batch, r.n_q)),
          "qdd": rng.uniform(-1, 1, (batch, r.n_q)), "tau": rng.uniform(-5, 5, (batch, r.n_q))}
     x["q"][-1], x["qd"][-1] = np.clip(0.0, lo, hi), 0.0
+    for n, length in p.inputs:
+        if n == "boxes":  # [centre, orthonormal axes, half-extents] per box, the same for the batch
+            m = length // 15
+            axes = np.linalg.qr(rng.normal(size=(m, 3, 3)))[0]
+            boxes = np.concatenate([rng.uniform(-0.8, 0.8, (m, 3)), axes.reshape(m, 9),
+                                    rng.uniform(0.02, 0.3, (m, 3))], 1).reshape(-1)
+            x["boxes"] = np.tile(boxes, (batch, 1))
     return {n: x[n] for n, _ in p.inputs}
 
 

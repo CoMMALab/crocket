@@ -27,6 +27,7 @@ TIERS = ("thread", "split", "warp", "block")
 BUDGET = 4000
 
 _INFIX = {"add": "+", "sub": "-", "mul": "*", "div": "/"}
+_CALL = {"abs": "fabs", "max": "fmax", "min": "fmin"}
 
 
 def literal(v: float) -> str:
@@ -39,7 +40,7 @@ def expr(g, s: int, ref) -> str:
         return f"{args[0]} {_INFIX[op]} {args[1]}"
     if op == "neg":
         return f"-{args[0]}"
-    return f"{op}({args[0]})"
+    return f"{_CALL.get(op, op)}({', '.join(args)})"
 
 
 @dataclass

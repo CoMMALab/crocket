@@ -55,6 +55,45 @@ def frame_jacobian(robot, q, frame=None):
     return _pose_out(Xe), J
 
 
+def _min_tree(xs):
+    """Balanced min reduction: depth log2(n), so the cooperative tiers can split it."""
+    while len(xs) > 1:
+        xs = [a.minimum(b) for a, b in zip(xs[::2], xs[1::2])] + ([xs[-1]] if len(xs) % 2 else [])
+    return xs[0]
+
+
+@algorithm(inputs=("q", ("boxes", lambda o: 15 * o.get("n_boxes", 0))), outputs=("margin",))
+def sphere_collision(robot, q, boxes, spheres=(), n_boxes=0):
+    """Fused FK and environment collision: ``min(d^2 - r^2)`` over every robot sphere and box,
+    ``d`` the distance from the sphere's centre to the box; negative means in collision.
+
+    ``spheres`` are ``(frame or link name, centre in that frame (3), radius)``, folded in as
+    constants. ``boxes`` is ``n_boxes`` rows of ``[centre (3), unit axes (3 x 3), half-extents (3)]``,
+    per call.
+    """
+    X0 = _poses(robot, q)
+    terms = []
+    for name, centre, radius in spheres:
+        X = _frame(robot, X0, name)  # elements [E row-major (9), t (3)]; world point t + E^T c
+        p = [X[9 + i] for i in range(3)]
+        for k in range(3):
+            if centre[k] != 0.0:
+                for i in range(3):
+                    p[i] = p[i] + X[3 * k + i] * float(centre[k])
+        r2 = float(radius) ** 2
+        for b in range(n_boxes):
+            box = boxes[15 * b:15 * b + 15]
+            rel = [p[i] - box[i] for i in range(3)]
+            d2 = Scalar.const(robot.t, 0.0)
+            for k in range(3):
+                axis = box[3 + 3 * k:6 + 3 * k]
+                x = (rel[0] * axis[0] + rel[1] * axis[1] + rel[2] * axis[2]).abs() - box[12 + k]
+                x = x.maximum(0.0)
+                d2 = d2 + x * x
+            terms.append(d2 - r2)
+    return _min_tree(terms) if terms else Scalar.const(robot.t, float("inf"))
+
+
 @algorithm(inputs=("q", "qd", "qdd"), outputs=("tau",))
 def rnea(robot, q, qd, qdd):
     v, a, f = {}, {}, {}
