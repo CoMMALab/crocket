@@ -1,0 +1,110 @@
+[
+ {
+  "method": "curobo",
+  "robot": "panda",
+  "batch": 1,
+  "ms": 0.7136416199500673,
+  "agree": 1.0,
+  "boxes": 11,
+  "collide": 0.0
+ },
+ {
+  "method": "curobo",
+  "robot": "panda",
+  "batch": 128,
+  "ms": 0.7014208598411642,
+  "agree": 1.0,
+  "boxes": 11,
+  "collide": 0.25
+ },
+ {
+  "method": "curobo",
+  "robot": "panda",
+  "batch": 1024,
+  "ms": 0.7182798400754109,
+  "agree": 1.0,
+  "boxes": 11,
+  "collide": 0.40625
+ },
+ {
+  "method": "curobo",
+  "robot": "panda",
+  "batch": 16384,
+  "ms": 4.39046262006741,
+  "agree": 1.0,
+  "boxes": 11,
+  "collide": 0.4638671875
+ },
+ {
+  "method": "curobo",
+  "robot": "baxter",
+  "batch": 1,
+  "ms": 0.712275440164376,
+  "agree": 1.0,
+  "boxes": 11,
+  "collide": 0.0
+ },
+ {
+  "method": "curobo",
+  "robot": "baxter",
+  "batch": 128,
+  "ms": 0.7089316999190487,
+  "agree": 1.0,
+  "boxes": 11,
+  "collide": 0.75
+ },
+ {
+  "method": "curobo",
+  "robot": "baxter",
+  "batch": 1024,
+  "ms": 0.7103127200389281,
+  "agree": 1.0,
+  "boxes": 11,
+  "collide": 0.5
+ },
+ {
+  "method": "curobo",
+  "robot": "baxter",
+  "batch": 16384,
+  "ms": 5.898462160257623,
+  "agree": 1.0,
+  "boxes": 11,
+  "collide": 0.470703125
+ },
+ {
+  "method": "curobo",
+  "robot": "g1",
+  "batch": 1,
+  "ms": 0.7126459400751628,
+  "agree": 1.0,
+  "boxes": 7,
+  "collide": 0.0
+ },
+ {
+  "method": "curobo",
+  "robot": "g1",
+  "batch": 128,
+  "ms": 0.7062956999288872,
+  "agree": 1.0,
+  "boxes": 7,
+  "collide": 0.5
+ },
+ {
+  "method": "curobo",
+  "robot": "g1",
+  "batch": 1024,
+  "ms": 0.7071378800901584,
+  "agree": 1.0,
+  "boxes": 7,
+  "collide": 0.453125
+ },
+ {
+  "method": "curobo",
+  "robot": "g1",
+  "batch": 16384,
+  "ms": 5.05543306004256,
+  "agree": 1.0,
+  "boxes": 7,
+  "collide": 0.4560546875
+ }
+]
