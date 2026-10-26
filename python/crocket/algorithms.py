@@ -247,6 +247,69 @@ def ik_masked_solve(robot, H, g, pb, active, n=0):
     return (_cholesky_solve(A, rhs),)
 
 
+def _sphere_centres(robot, X0, spheres):
+    """World centres ``t + E^T c`` of ``(frame, centre)`` spheres, flat ``3 * len(spheres)``."""
+    out = []
+    for name, centre in spheres:
+        X = _frame(robot, X0, name)
+        p = [X[9 + i] for i in range(3)]
+        for k in range(3):
+            if centre[k] != 0.0:
+                for i in range(3):
+                    p[i] = p[i] + X[3 * k + i] * float(centre[k])
+        out += p
+    return out
+
+
+def _ik_geometry(robot, q, targets, frames, cols, wspheres, sspheres, jacobian):
+    X0 = _poses(robot, q)
+    zero = Scalar.const(robot.t, 0.0)
+    r, J = [], []
+    for e, name in enumerate(frames):
+        Xe, Jf = _jacobian(robot, X0, name)
+        R = [[Xe[3 * k + i] for k in range(3)] for i in range(3)]
+        qw, qx, qy, qz = (targets[7 * e + i] for i in range(4))
+        G = [[1.0 - 2.0 * (qy * qy + qz * qz), 2.0 * (qx * qy - qw * qz), 2.0 * (qx * qz + qw * qy)],
+             [2.0 * (qx * qy + qw * qz), 1.0 - 2.0 * (qx * qx + qz * qz), 2.0 * (qy * qz - qw * qx)],
+             [2.0 * (qx * qz - qw * qy), 2.0 * (qy * qz + qw * qx), 1.0 - 2.0 * (qx * qx + qy * qy)]]
+        Rerr = [[R[i][0] * G[j][0] + R[i][1] * G[j][1] + R[i][2] * G[j][2] for j in range(3)]
+                for i in range(3)]
+        r += [Xe[9 + i] - targets[7 * e + 4 + i] for i in range(3)] + _so3_log(Rerr)
+        J += [Jf[row][c] for row in range(6) for c in cols]
+    cw, cs = _sphere_centres(robot, X0, wspheres), _sphere_centres(robot, X0, sspheres)
+    if not jacobian:
+        return r, cw, cs
+    tw = []
+    for j in robot.joints:  # world twist at the world origin, [w, v_o], times the mimic scale
+        m = X0[j].inv() @ robot.S(j)
+        tw += [m[k] * robot.scale(j) for k in range(6)]
+    return r, J, cw, cs, (tw if (wspheres or sspheres) else [zero] * 0)
+
+
+@algorithm(inputs=("q", ("targets", lambda o: 7 * len(o.get("frames", ())))),
+           outputs=("r", "J", "cw", "cs", "tw"))
+def ik_geometry(robot, q, targets, frames=(), cols=(), wspheres=(), sspheres=()):
+    """Everything an IK iteration reads from the robot, for several target frames at once.
+
+    ``r`` is the stacked unweighted pose residual ``[p - p*, log(R R*^T)]`` per frame (6 each)
+    against ``targets`` (``[qw, qx, qy, qz, x, y, z]`` per frame), ``J`` the stacked
+    LOCAL_WORLD_ALIGNED Jacobian over the q columns ``cols`` (row-major ``6 n_frames x
+    len(cols)``). ``cw`` / ``cs`` are the world centres of the ``(frame, centre)`` spheres
+    ``wspheres`` (world collision) and ``sspheres`` (self collision), 3 each. ``tw`` is every
+    joint's world twist at the world origin ``[w, v_o]`` times its mimic scale, 6 per joint in
+    ``robot.joints`` order (empty without spheres): a sphere centre ``c`` moves with
+    ``v_o + w x c`` per unit of that joint's column, which is all a collision gradient needs.
+    Distances to runtime obstacles and the active set belong to the caller."""
+    return _ik_geometry(robot, q, targets, frames, cols, wspheres, sspheres, True)
+
+
+@algorithm(inputs=("q", ("targets", lambda o: 7 * len(o.get("frames", ())))),
+           outputs=("r", "cw", "cs"))
+def ik_geometry_value(robot, q, targets, frames=(), cols=(), wspheres=(), sspheres=()):
+    """``ik_geometry`` without the Jacobian and twists: the merit of a line-search trial."""
+    return _ik_geometry(robot, q, targets, frames, cols, wspheres, sspheres, False)
+
+
 def _min_tree(xs):
     """Balanced min reduction: depth log2(n), so the cooperative tiers can split it."""
     while len(xs) > 1:
