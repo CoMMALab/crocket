@@ -1,0 +1,101 @@
+[
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "panda",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 103.738083,
+  "tier": "f64",
+  "success": 1.0,
+  "pos_mm": 0.004588765584217147,
+  "ori_rad": 4.779673756895993e-06
+ },
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "panda",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 104.577507,
+  "tier": "f64",
+  "success": 0.9921875,
+  "pos_mm": 0.0003641298983712181,
+  "ori_rad": 8.895801987998256e-07
+ },
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "panda",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 158.287338,
+  "tier": "f64",
+  "success": 0.9912109375,
+  "pos_mm": 0.0002972940290497822,
+  "ori_rad": 5.782714311221422e-07
+ },
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "baxter",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 101.861786,
+  "tier": "f64",
+  "success": 1.0,
+  "pos_mm": 2.191822684362477e-05,
+  "ori_rad": 2.9802322387695312e-08
+ },
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "baxter",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 105.118782,
+  "tier": "f64",
+  "success": 0.9921875,
+  "pos_mm": 0.0001671589747935755,
+  "ori_rad": 4.331600460198993e-07
+ },
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "baxter",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 159.512695,
+  "tier": "f64",
+  "success": 0.994140625,
+  "pos_mm": 0.00024974374263423934,
+  "ori_rad": 4.770653343397834e-07
+ },
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "g1",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 188.025955,
+  "tier": "f64",
+  "success": 1.0,
+  "pos_mm": 0.00011427345280331781,
+  "ori_rad": 3.0098870212918867e-07
+ },
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "g1",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 191.091568,
+  "tier": "f64",
+  "success": 1.0,
+  "pos_mm": 0.00014113185181334356,
+  "ori_rad": 4.912840147867283e-07
+ },
+ {
+  "method": "crocket_sqp_f64",
+  "robot": "g1",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 275.160645,
+  "tier": "f64",
+  "success": 1.0,
+  "pos_mm": 0.00011691717801327822,
+  "ori_rad": 4.1268196301597746e-07
+ }
+]

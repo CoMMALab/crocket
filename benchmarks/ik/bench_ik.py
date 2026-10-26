@@ -9,6 +9,10 @@ Same targets (FK of random in-limit configurations), seeds, weights (position 50
               accept/reject loop with the same settings (ik/crocket_ik.py)
 * ``crocket_ls_{f32,f64,mixed}``  GRiM's ``ls_ik`` formulation and loop, its step and
               merit traced by crocket, all-float / all-double / GRiM's float-FK, double-solve split (ik/crocket_ik_ls.py)
+* ``grim_sqp`` GRiM ``sqp_ik`` (no collision: LM plus active-set box refinement)
+* ``grim_sqp_f32`` the same kernel built with its QP in float (``-DGRIM_SQP_QP_T=float``)
+* ``crocket_sqp_{f32,f64,mixed}``  GRiM's ``sqp_ik`` formulation and loop, traced by crocket
+              (ik/crocket_ik_sqp.py)
 * ``pyroki``  pyroki's own IK formulation (``pose_cost_analytic_jac`` + ``limit_constraint``)
               solved by jaxls (dense Cholesky LM), vmapped over problems x seeds
 
@@ -21,6 +25,7 @@ orientation < 0.01 rad, inside joint limits.
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -71,7 +76,7 @@ def score(robot: str, q: np.ndarray, target: np.ndarray, lo, hi) -> dict:
             "ori_rad": float(np.median(ori[i, best]))}
 
 
-def run_grim(robot, seeds, target, traced):
+def run_grim(robot, seeds, target, traced, kernel="ls"):
     import jax
     import jax.numpy as jnp
     from grim.motion import MotionRobot, ik
@@ -79,15 +84,19 @@ def run_grim(robot, seeds, target, traced):
     names = list(common.load_inputs("ik", robot)["joint_names"])
     perm = [names.index(n) for n in m.actuated_names]
     inv = np.argsort(perm)
-    t = ik.build("ls", m, (m.link_joint(EE[robot]),), traced=traced)
+    t = ik.build(kernel, m, (m.link_joint(EE[robot]),), traced=traced)
     s, g = jnp.asarray(seeds[..., perm]), jnp.asarray(target[:, None])
     best = None
     for tier in ik.TIERS:  # the fastest tier per cell, as GRiM recommends choosing by batch
         f = jax.jit(lambda s, g, tier=tier: ik.run(
             t, s, g, max_iter=MAX_ITER, pos_weight=POS_W, ori_weight=ORI_W, lambda_init=5e-3,
             eps_pos=1e-4, eps_ori=1e-3, collision_weight=1e4, collision_margin=0.02, tier=tier,
-            block_threads=64)[0])
-        out = f(s, g)
+            block_threads=64, **({"n_inner_iters": 10} if kernel.startswith("sqp") else {}))[0])
+        out = jax.block_until_ready(f(s, g))
+        t0 = time.perf_counter()
+        jax.block_until_ready(f(s, g))
+        if best is not None and 1e3 * (time.perf_counter() - t0) > 3 * best[0]:
+            continue  # clearly the slower tier: not worth K x REPS calls (SQP's warp/block take ~1.5 s)
         ms = common.amortized_ms(lambda: f(s, g), jax.block_until_ready)
         if best is None or ms < best[0]:
             best = (ms, np.asarray(out)[..., inv], tier)
@@ -131,6 +140,13 @@ def run_crocket(robot, seeds, target):
     return crocket_ik.run(robot, seeds, target, EE[robot], MAX_ITER, POS_W, ORI_W)
 
 
+def run_crocket_sqp(precision):
+    def run(robot, seeds, target):
+        import crocket_ik_sqp
+        return crocket_ik_sqp.run(robot, seeds, target, EE[robot], MAX_ITER, POS_W, ORI_W, precision)
+    return run
+
+
 def run_crocket_ls(precision):
     def run(robot, seeds, target):
         import crocket_ik_ls
@@ -141,6 +157,9 @@ def run_crocket_ls(precision):
 RUNNERS = {"grim": lambda r, s, t: run_grim(r, s, t, False), "crocket": run_crocket,
            "crocket_ls_f32": run_crocket_ls("f32"), "crocket_ls_f64": run_crocket_ls("f64"),
            "crocket_ls_mixed": run_crocket_ls("mixed"),
+           "grim_sqp": lambda r, s, t: run_grim(r, s, t, False, "sqp"),
+           "grim_sqp_f32": lambda r, s, t: run_grim(r, s, t, False, "sqp_f32"),
+           **{f"crocket_sqp_{p}": run_crocket_sqp(p) for p in ("f32", "f64", "mixed")},
            "pyroki": run_pyroki}
 
 

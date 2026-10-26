@@ -215,6 +215,38 @@ def ik_ls_solve(robot, Jw, r, lam, n=0):
     return _ls_solve(robot, Jw, r, lam, n)
 
 
+@algorithm(inputs=(("Jw", lambda o: 6 * o["n"]), ("r", lambda o: 6), ("lam", lambda o: 1)),
+           outputs=("H", "g", "scale"))
+def ik_sqp_system(robot, Jw, r, lam, n=0):
+    """GRiM ``sqp_ik``'s QP in Jacobi-scaled space (kernels/ik/sqp_ik.cu): ``H = Js^T Js + lam I``
+    (row-major n x n), ``g = Js^T r`` and the column scales, ``Js = Jw / scale``. The active-set
+    loop over the box bounds belongs to the caller; it re-solves with ``ik_masked_solve``."""
+    zero = Scalar.const(robot.t, 0.0)
+    Jw = [Jw[n * k:n * k + n] for k in range(6)]
+    scale = [sum((Jw[k][i] * Jw[k][i] for k in range(6)), zero).sqrt() + 1e-8 for i in range(n)]
+    Js = [[Jw[k][i] / scale[i] for i in range(n)] for k in range(6)]
+    H = [sum((Js[k][i] * Js[k][j] for k in range(6)), lam[0] if i == j else zero)
+         for i in range(n) for j in range(n)]
+    return H, [sum((Js[k][i] * r[k] for k in range(6)), zero) for i in range(n)], scale
+
+
+@algorithm(inputs=(("H", lambda o: o["n"] ** 2), ("g", lambda o: o["n"]), ("pb", lambda o: o["n"]),
+                   ("active", lambda o: o["n"])), outputs=("p",))
+def ik_masked_solve(robot, H, g, pb, active, n=0):
+    """One active-set re-solve of GRiM ``sqp_ik``, branch-free: ``active`` is 1 for a joint held
+    at its bound ``pb`` (0 for free joints, whose ``pb`` must be 0). Free joints solve
+    ``H_ff p_f = -(g + H pb)_f``; active rows are identity with right-hand side 0, and the caller
+    puts ``pb`` back. With ``active = 0`` it is the unconstrained Newton step."""
+    one = Scalar.const(robot.t, 1.0)
+    H = [H[n * i:n * i + n] for i in range(n)]
+    free = [one - a for a in active]
+    A = [[H[i][j] * (free[i] * free[j]) + (active[i] if i == j else 0.0) for j in range(n)]
+         for i in range(n)]
+    rhs = [-(g[i] + sum((H[i][j] * pb[j] for j in range(n)), Scalar.const(robot.t, 0.0))) * free[i]
+           for i in range(n)]
+    return (_cholesky_solve(A, rhs),)
+
+
 def _min_tree(xs):
     """Balanced min reduction: depth log2(n), so the cooperative tiers can split it."""
     while len(xs) > 1:
