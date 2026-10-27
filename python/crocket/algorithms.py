@@ -9,6 +9,8 @@ matrices are ``n_q x n_q`` column-major.
 
 from __future__ import annotations
 
+import math
+
 from .trace import Motion, SE3, Scalar, algorithm
 
 
@@ -504,3 +506,219 @@ def rnea_derivatives(robot, q, qd, qdd):
         for j in robot.joints:
             f[j] = I[j] @ a[j] + v[j].cross_dual(I[j] @ v[j])
     return tuple(out)
+
+
+# ---------------------------------------------------------------------------
+# Closed-form IK of the 7-DOF "spherical shoulder, intersecting axes 5-6, offset axis 7" family
+# (Franka Panda / FR3): GRiM's kernels/ik/analytic_ik.cu, traced with its arm geometry folded in.
+# ---------------------------------------------------------------------------
+
+_SP_TOL, _TINY = 1e-6, 1e-12
+
+
+class _Arm:
+    """The analytic solver's geometry (GRiM's ArmGeom field order, 95 scalars) as traced
+    constants, plus the scalar helpers the closed form needs."""
+
+    def __init__(self, t, geom):
+        g = [float(x) for x in geom]
+        assert len(g) == 95, len(g)
+        c = lambda v: Scalar.const(t, v)  # noqa: E731
+        self.t, self.c = t, c
+        self.axes = [[c(v) for v in g[3 * i:3 * i + 3]] for i in range(7)]
+        self.points = [[c(v) for v in g[21 + 3 * i:24 + 3 * i]] for i in range(7)]
+        self.axes_f = [g[3 * i:3 * i + 3] for i in range(7)]
+        self.shoulder = [c(v) for v in g[42:45]]
+        self.wrist = [c(v) for v in g[45:48]]
+        self.m_home = [c(v) for v in g[48:64]]
+        self.m_home_inv = [c(v) for v in g[64:80]]
+        self.cos_alpha = c(g[80])
+
+    # -- small linear algebra over traced scalars -------------------------------------------
+    @staticmethod
+    def dot(a, b):
+        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+    @staticmethod
+    def cross(a, b):
+        return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+
+    def norm(self, a):
+        return self.dot(a, a).sqrt()
+
+    def unit(self, a):
+        n = self.norm(a).maximum(_TINY)   # the kernel's `n > TINY ? n : 1`, smooth in n
+        return [x / n for x in a]
+
+    @staticmethod
+    def mv(M, v):
+        return [M[3 * i] * v[0] + M[3 * i + 1] * v[1] + M[3 * i + 2] * v[2] for i in range(3)]
+
+    @staticmethod
+    def mm(A, B):
+        return [A[3 * i] * B[j] + A[3 * i + 1] * B[3 + j] + A[3 * i + 2] * B[6 + j]
+                for i in range(3) for j in range(3)]
+
+    @staticmethod
+    def mtm(A, B):
+        return [A[i] * B[j] + A[3 + i] * B[3 + j] + A[6 + i] * B[6 + j] for i in range(3) for j in range(3)]
+
+    @staticmethod
+    def m4(A, B):
+        return [sum((A[4 * i + k] * B[4 * k + j] for k in range(1, 4)), A[4 * i] * B[j])
+                for i in range(4) for j in range(4)]
+
+    def rot(self, k, th):
+        cth, sth = th.cos(), th.sin()
+        v = 1.0 - cth
+        x, y, z = k
+        return [cth + x * x * v, x * y * v - z * sth, x * z * v + y * sth,
+                x * y * v + z * sth, cth + y * y * v, y * z * v - x * sth,
+                x * z * v - y * sth, y * z * v + x * sth, cth + z * z * v]
+
+    @staticmethod
+    def wrap(th):
+        return th.sin().atan2(th.cos())
+
+    def acos(self, x):
+        return (1.0 - x * x).maximum(0.0).sqrt().atan2(x)
+
+    def screw(self, i, th):
+        R = self.rot(self.axes[i], th)
+        p = self.points[i]
+        Rp = self.mv(R, p)
+        z, o = self.c(0.0), self.c(1.0)
+        return [R[0], R[1], R[2], p[0] - Rp[0], R[3], R[4], R[5], p[1] - Rp[1],
+                R[6], R[7], R[8], p[2] - Rp[2], z, z, z, o]
+
+    # -- Paden-Kahan subproblems -------------------------------------------------------------
+    def sp4(self, h, p, k, d):
+        """h . rot(k, th) p = d -> two roots. Past the sinusoid's reach the clamped ratio gives
+        acos = 0 or pi: the residual-minimising angle, as the kernel's least-squares branch."""
+        kp, hk = self.dot(k, p), self.dot(h, k)
+        A = self.dot(h, p) - hk * kp
+        B = self.dot(h, self.cross(k, p))
+        R = (A * A + B * B).sqrt()
+        phi = B.atan2(A)
+        ratio = ((d - hk * kp) / R.maximum(_SP_TOL)).maximum(-1.0).minimum(1.0)
+        delta = self.acos(ratio)
+        return self.wrap(phi + delta), self.wrap(phi - delta)
+
+    def sp3(self, p1, p2, k, d):
+        return self.sp4(p2, p1, k, 0.5 * (self.dot(p1, p1) + self.dot(p2, p2) - d * d))
+
+    def sp1(self, p1, p2, k):
+        kp1, kp2 = self.dot(k, p1), self.dot(k, p2)
+        a = [p1[i] - k[i] * kp1 for i in range(3)]
+        b = [p2[i] - k[i] * kp2 for i in range(3)]
+        return self.wrap(self.dot(k, self.cross(a, b)).atan2(self.dot(a, b)))
+
+    def sp2(self, p1, p2, k1, k2):
+        t2 = self.sp4(k1, p2, k2, self.dot(k1, p1))
+        t1 = tuple(self.sp1(p1, self.mv(self.rot(k2, t), p2), k1) for t in t2)
+        return t1, t2
+
+    def rot_two(self, a1, a2, b1, b2):
+        """The rotation carrying a1 -> b1 and a2 -> b2 (Gram-Schmidt frames)."""
+        def frame(u, v):
+            e1 = self.unit(u)
+            d = self.dot(e1, v)
+            e2 = self.unit([v[i] - e1[i] * d for i in range(3)])
+            e3 = self.cross(e1, e2)
+            return [e1[0], e2[0], e3[0], e1[1], e2[1], e3[1], e1[2], e2[2], e3[2]]
+        E, F = frame(a1, a2), frame(b1, b2)
+        Et = [E[3 * j + i] for i in range(3) for j in range(3)]
+        return self.mm(F, Et)
+
+    def perp(self, i):
+        """A unit vector perpendicular to axis i, chosen on its constant direction."""
+        k = self.axes_f[i]
+        alt = [1.0, 0.0, 0.0] if abs(k[0]) < 0.9 else [0.0, 1.0, 0.0]
+        v = [k[1] * alt[2] - k[2] * alt[1], k[2] * alt[0] - k[0] * alt[2], k[0] * alt[1] - k[1] * alt[0]]
+        n = math.sqrt(sum(x * x for x in v))
+        return [self.c(x / n) for x in v]
+
+    # -- the solve ---------------------------------------------------------------------------
+    def candidates(self, G, q7):
+        """The 8 branches (elbow root, z sign, shoulder pair) for one q7 -> list of 7-vectors."""
+        k = self.axes
+        GB = self.m4(G, self.screw(6, -q7))
+        R6 = [GB[4 * i + j] for i in range(3) for j in range(3)]
+        W = [w + GB[4 * i + 3] for i, w in enumerate(self.mv(R6, self.wrist))]
+        a6 = self.mv(R6, k[5])
+        w = [W[i] - self.shoulder[i] for i in range(3)]
+        wn = self.norm(w)
+        w_hat = [x / wn.maximum(_TINY) for x in w]
+        p1 = [self.wrist[i] - self.points[3][i] for i in range(3)]
+        p2 = [self.shoulder[i] - self.points[3][i] for i in range(3)]
+        out = [None] * 8
+        for i4, q4 in enumerate(self.sp3(p1, p2, k[3], wn)):
+            R4q = self.rot(k[3], q4)
+            v3 = [x + self.points[3][i] - self.shoulder[i] for i, x in enumerate(self.mv(R4q, p1))]
+            m3 = self.mv(R4q, k[4])
+            v3_hat = [x / self.norm(v3).maximum(_TINY) for x in v3]
+            c1, c2, gg = self.dot(m3, v3_hat), self.cos_alpha, self.dot(w_hat, a6)
+            det = (1.0 - gg * gg).maximum(_TINY)
+            z_par = [((c1 - gg * c2) / det) * w_hat[i] + ((c2 - gg * c1) / det) * a6[i] for i in range(3)]
+            perp = self.cross(w_hat, a6)
+            perp_hat = [x / self.norm(perp).maximum(_TINY) for x in perp]
+            c_mag = (1.0 - self.dot(z_par, z_par)).maximum(0.0).sqrt()
+            for isign, sgn in enumerate((1.0, -1.0)):
+                z = [z_par[i] + sgn * c_mag * perp_hat[i] for i in range(3)]
+                R3 = self.rot_two(v3_hat, m3, w_hat, z)
+                t1, t2 = self.sp2(self.mv(R3, k[2]), k[2], k[0], k[1])
+                R4m = self.mm(R3, self.rot(k[3], q4))
+                Q = self.mtm(R4m, R6)
+                q5 = self.sp1(k[5], self.mv(Q, k[5]), k[4])
+                Pw = self.mm(self.rot(k[4], -q5), Q)
+                uw = self.perp(5)
+                q6 = self.sp1(uw, self.mv(Pw, uw), k[5])
+                for ipair in range(2):
+                    q1, q2 = -t1[ipair], t2[ipair]
+                    Pfull = self.mm(self.mm(self.rot(k[1], -q2), self.rot(k[0], -q1)), R3)
+                    u = self.perp(2)
+                    q3 = self.sp1(u, self.mv(Pfull, u), k[2])
+                    out[i4 | (isign << 1) | (ipair << 2)] = [q1, q2, q3, q4, q5, q6, q7]
+        return out
+
+    def chain(self, q):
+        """Cumulative screw products T_0 = I, T_d = T_{d-1} exp([S_d] q_d), rows 0-2 of each."""
+        z, o = self.c(0.0), self.c(1.0)
+        T = [o, z, z, z, z, o, z, z, z, z, o, z, z, z, z, o]
+        out = [T[:12]]
+        for i in range(7):
+            T = self.m4(T, self.screw(i, q[i]))
+            out.append(T[:12])
+        return out
+
+    def pose_error(self, q, target):
+        T = self.m4(self.chain(q)[-1] + [self.c(0.0)] * 3 + [self.c(1.0)], self.m_home)
+        dp = sum(((T[4 * i + 3] - target[4 * i + 3]) * (T[4 * i + 3] - target[4 * i + 3]) for i in range(1, 3)),
+                 (T[3] - target[3]) * (T[3] - target[3]))
+        fro = self.c(0.0)
+        for i in range(3):
+            for j in range(3):
+                re = sum((T[4 * i + kk] * target[4 * j + kk] for kk in range(1, 3)), T[4 * i] * target[4 * j])
+                re = re - 1.0 if i == j else re
+                fro = fro + re * re
+        return dp.sqrt() + (fro * 0.5).sqrt()
+
+
+@algorithm(inputs=(("target", lambda o: 16), ("q7", lambda o: 1)), outputs=("q", "err"))
+def analytic_ik_candidates(robot, target, q7, geom=()):
+    """GRiM ``analytic_ik``'s eight branches for one redundancy value ``q7``: ``q`` (8 x 7,
+    branch ``elbow | sign << 1 | pair << 2``) and each one's pose error (position norm plus the
+    Frobenius rotation error / sqrt 2), against ``target`` (4 x 4 row-major). ``geom`` is the
+    95-scalar ArmGeom, folded in. Non-finite candidates and limits are the caller's to reject."""
+    arm = _Arm(robot.t, geom)
+    G = arm.m4(list(target), arm.m_home_inv)
+    qs = arm.candidates(G, q7[0])
+    return [x for q in qs for x in q], [arm.pose_error(q, target) for q in qs]
+
+
+@algorithm(inputs=(("q", lambda o: 7),), outputs=("chain",))
+def analytic_ik_chain(robot, q, geom=()):
+    """The cumulative screw products (8 x rows 0-2 of a 4 x 4, depth 0 = identity) that place
+    ``analytic_ik``'s home-frame collision spheres at ``q``."""
+    arm = _Arm(robot.t, geom)
+    return [x for T in arm.chain(q) for x in T]
