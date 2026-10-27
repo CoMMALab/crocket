@@ -210,6 +210,62 @@ def test_ik_lm_step_matches_numpy(robot_name):
         _close(got["ori_err2"][b, 0], eo @ eo)
 
 
+
+def _variant(name: str, edit) -> crocket.Robot:
+    """``name``'s URDF with one textual edit, parsed afresh."""
+    import tempfile
+    from pathlib import Path
+    path = Path(tempfile.mkdtemp(prefix="crocket_")) / f"{name}.urdf"
+    path.write_text(edit(Path(URDFS[name]).read_text()))
+    return crocket.Robot(path, name=name)
+
+
+def _wxyz(R):
+    return pin.Quaternion(np.asarray(R)).coeffs()[[3, 0, 1, 2]]   # coeffs() is xyzw
+
+
+@pytest.mark.parametrize("joint", [0, 3])
+def test_ik_geometry_runtime_rotation_matches_reoriented_urdf(joint):
+    """``rot_joint``: the per-call rotation must give exactly the trace of a URDF whose joint
+    origin carries that rotation, and the baked rotation must give the plain trace."""
+    import re
+    r = robot("panda")
+    name = r.joint_names[joint]
+    def reorient(xml):
+        blk = re.search(r'<joint name="%s".*?</joint>' % name, xml, re.S).group(0)
+        org = re.search(r"<origin[^>]*/>", blk).group(0)
+        xyz = re.search(r'xyz="([^"]*)"', org).group(1)
+        return xml.replace(blk, blk.replace(org, f'<origin xyz="{xyz}" rpy="0.3 -0.7 1.1"/>'))
+    r2 = _variant("panda", reorient)
+    opts = dict(frames=(r.joint_names[-1],), cols=tuple(range(r.n_q)),
+                wspheres=((r.joint_names[-2], (0.0, 0.05, 0.1)),))
+    x = inputs(r, batch=4)
+    tgt = np.tile([0.0, 1, 0, 0, 0.3, 0.1, 0.5], (4, 1))   # panda points down: keep the log off pi
+    def run(m, rot, **o):
+        return crocket.trace(m, "ik_geometry", **opts, **o).evaluate(
+            q=x["q"], targets=tgt, rot=np.tile(np.asarray(rot, float), (4, 1)).reshape(4, -1))
+    E0 = lambda m: m.joints[joint].E[0] + m.joints[joint].E[1]    # E = R^T at q = 0
+    plain, moved = run(r, []), run(r2, [])
+    for want, R in ((plain, E0(r).T), (moved, E0(r2).T)):
+        got = run(r, _wxyz(R), rot_joint=joint)
+        for k in ("r", "J", "cw", "tw"):
+            np.testing.assert_allclose(got[k], want[k], rtol=0, atol=1e-12, err_msg=k)
+    assert np.abs(moved["r"] - plain["r"]).max() > 0.1
+
+
+def test_continuous_joint_traces_as_unlimited_revolute():
+    """A continuous joint is a revolute joint without limits: same transforms, infinite limits."""
+    import re
+    def as_continuous(xml):
+        blk = re.search(r'<joint name="[^"]*" type="revolute".*?</joint>', xml, re.S).group(0)
+        return xml.replace(blk, re.sub(r"<limit[^>]*/>", "", blk.replace('type="revolute"', 'type="continuous"')))
+    r, rc = robot("panda"), _variant("panda", as_continuous)
+    assert rc.joints[0].kind == "revolute" and rc.joints[0].limits == (-np.inf, np.inf)
+    x = inputs(r, batch=4)
+    frames = tuple(r.frames)
+    np.testing.assert_array_equal(crocket.trace(rc, "frame_poses", frames=frames).evaluate(q=x["q"])["poses"],
+                                  crocket.trace(r, "frame_poses", frames=frames).evaluate(q=x["q"])["poses"])
+
 @pytest.mark.parametrize("robot_name", ["panda", "fr3"])
 def test_derivatives_match_finite_differences(robot_name):
     """Checks the analytical tangents against the traced RNEA itself (mimic joints included)."""

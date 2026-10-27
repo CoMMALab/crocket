@@ -1,6 +1,6 @@
 """The robot set and inputs shared by the tests: cricket's six test robots (kinematic copies in
-``resources/``) plus GRiD's ``config/robot_assets`` that stay inside v1's joint types (gen3's
-continuous joints are a v1 non-goal), including humanoids for wide trees."""
+``resources/``) plus GRiD's ``config/robot_assets`` that stay inside v1's joint types (continuous
+joints have their own test: Pinocchio gives them nq = 2), including humanoids for wide trees."""
 
 from __future__ import annotations
 

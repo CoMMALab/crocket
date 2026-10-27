@@ -11,17 +11,39 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+
 from .trace import Motion, SE3, Scalar, algorithm
 
 
-def _poses(robot, q):
-    """World-to-joint transform of every joint."""
+def _poses(robot, q, rot=(), rot_joint=-1):
+    """World-to-joint transform of every joint. With ``rot_joint`` >= 0, ``rot`` (wxyz) replaces
+    the rotation of that joint's parent-to-joint transform at q = 0 (its translation stays)."""
     X0 = {}
     for j in robot.joints:
         X = robot.Xup(j, robot.q(j, q))
+        if j == rot_joint:
+            X = X @ _reorient(robot, j, rot)
         p = robot.parent(j)
         X0[j] = X if p < 0 else X @ X0[p]
     return X0
+
+
+def _reorient(robot, j, rot):
+    """``A`` with ``A T(q) = T'(q)``: T the joint's parent-to-joint pose, T' the same with its
+    q = 0 rotation ``Rc`` replaced by ``rot``. A = (R', pc) (Rc, pc)^-1 = (R' Rc^T, pc - R' Rc^T pc)."""
+    jt = robot.robot.joints[j]
+    Ec = jt.E[0] + jt.E[1] if jt.kind == "revolute" else jt.E[0]   # E = R^T at q = 0
+    pc = jt.r[0] + jt.r[1] if jt.kind == "revolute" else jt.r[0]
+    Rp = _quat_matrix(*rot)
+    zero = Scalar.const(robot.t, 0.0)
+    RA = [[sum((Rp[i][k] * float(Ec[k][m]) for k in range(3) if Ec[k][m] != 0.0), zero)
+           for m in range(3)] for i in range(3)]                   # R' Rc^T, Rc^T = Ec
+    tA = [float(pc[i]) - sum((RA[i][m] * float(pc[m]) for m in range(3) if pc[m] != 0.0), zero)
+          for i in range(3)]
+    elems = [RA[m][i] for i in range(3) for m in range(3)] + tA    # [R_A^T row-major, t_A]
+    return robot.t.record("se3_pack", SE3, tuple(elems),
+                          lambda *e: np.array([int(np.asarray(x).reshape(-1)[0]) for x in e], np.int64))
 
 
 def _frame(robot, X0, name):
@@ -272,8 +294,8 @@ def _sphere_centres(robot, X0, spheres):
     return out
 
 
-def _ik_geometry(robot, q, targets, frames, cols, wspheres, sspheres, jacobian):
-    X0 = _poses(robot, q)
+def _ik_geometry(robot, q, targets, rot, rot_joint, frames, cols, wspheres, sspheres, jacobian):
+    X0 = _poses(robot, q, rot, rot_joint)
     zero = Scalar.const(robot.t, 0.0)
     r, J = [], []
     for e, name in enumerate(frames):
@@ -295,9 +317,12 @@ def _ik_geometry(robot, q, targets, frames, cols, wspheres, sspheres, jacobian):
     return r, J, cw, cs, (tw if (wspheres or sspheres) else [zero] * 0)
 
 
-@algorithm(inputs=("q", ("targets", lambda o: 7 * len(o.get("frames", ())))),
+_ROT = ("rot", lambda o: 4 if o.get("rot_joint", -1) >= 0 else 0)
+
+
+@algorithm(inputs=("q", ("targets", lambda o: 7 * len(o.get("frames", ()))), _ROT),
            outputs=("r", "J", "cw", "cs", "tw"))
-def ik_geometry(robot, q, targets, frames=(), cols=(), wspheres=(), sspheres=()):
+def ik_geometry(robot, q, targets, rot, frames=(), cols=(), wspheres=(), sspheres=(), rot_joint=-1):
     """Everything an IK iteration reads from the robot, for several target frames at once.
 
     ``r`` is the stacked unweighted pose residual ``[p - p*, log(R R*^T)]`` per frame (6 each)
@@ -308,15 +333,17 @@ def ik_geometry(robot, q, targets, frames=(), cols=(), wspheres=(), sspheres=())
     joint's world twist at the world origin ``[w, v_o]`` times its mimic scale, 6 per joint in
     ``robot.joints`` order (empty without spheres): a sphere centre ``c`` moves with
     ``v_o + w x c`` per unit of that joint's column, which is all a collision gradient needs.
-    Distances to runtime obstacles and the active set belong to the caller."""
-    return _ik_geometry(robot, q, targets, frames, cols, wspheres, sspheres, True)
+    Distances to runtime obstacles and the active set belong to the caller. ``rot_joint`` >= 0
+    takes ``rot`` (wxyz), the rotation of that joint's parent-to-joint transform at q = 0, per
+    call (a floating base's chart reference); ``rot`` is empty otherwise."""
+    return _ik_geometry(robot, q, targets, rot, rot_joint, frames, cols, wspheres, sspheres, True)
 
 
-@algorithm(inputs=("q", ("targets", lambda o: 7 * len(o.get("frames", ())))),
+@algorithm(inputs=("q", ("targets", lambda o: 7 * len(o.get("frames", ()))), _ROT),
            outputs=("r", "cw", "cs"))
-def ik_geometry_value(robot, q, targets, frames=(), cols=(), wspheres=(), sspheres=()):
+def ik_geometry_value(robot, q, targets, rot, frames=(), cols=(), wspheres=(), sspheres=(), rot_joint=-1):
     """``ik_geometry`` without the Jacobian and twists: the merit of a line-search trial."""
-    return _ik_geometry(robot, q, targets, frames, cols, wspheres, sspheres, False)
+    return _ik_geometry(robot, q, targets, rot, rot_joint, frames, cols, wspheres, sspheres, False)
 
 
 def _min_tree(xs):
