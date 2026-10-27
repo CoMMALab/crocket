@@ -62,6 +62,16 @@ def frame_jacobian(robot, q, frame=None):
     return _pose_out(Xe), J
 
 
+def _quat_matrix(qw, qx, qy, qz):
+    """Rotation of the quaternion ``(qw, qx, qy, qz)`` in the form exact for ANY norm
+    (``2 / |q|^2`` in place of 2). Targets reach the kernels in float32, a few ulps off unit, and
+    the unit-norm form's non-orthogonality is amplified by the log near theta = pi (1e-4 rad)."""
+    k = 2.0 / (qw * qw + qx * qx + qy * qy + qz * qz)
+    return [[1.0 - k * (qy * qy + qz * qz), k * (qx * qy - qw * qz), k * (qx * qz + qw * qy)],
+            [k * (qx * qy + qw * qz), 1.0 - k * (qx * qx + qz * qz), k * (qy * qz - qw * qx)],
+            [k * (qx * qz - qw * qy), k * (qy * qz + qw * qx), 1.0 - k * (qx * qx + qy * qy)]]
+
+
 def _so3_log(R, eps=1e-12):
     """``log(R)^vee``, smooth through theta = 0: the Taylor form ``vee / 2`` blended with the
     exact ``theta / (2 sin theta) vee`` by ``w = sin^2 / (sin^2 + eps)`` (McVAMP's so3_log_smooth).
@@ -71,7 +81,10 @@ def _so3_log(R, eps=1e-12):
     s2 = (vee[0] * vee[0] + vee[1] * vee[1] + vee[2] * vee[2]) * 0.25
     s = s2.sqrt()
     c = (R[0][0] + R[1][1] + R[2][2] - 1.0) * 0.5
-    w = s2 / (s2 + eps)
+    # The blend is for theta -> 0; near pi sin -> 0 too, where blending would bias the exact
+    # branch by eps / sin^2 (3.8e-6 rad at theta = pi - 1e-3). Gating eps on cos > 0 keeps it off
+    # there; 1e-30 only guards the 0 / 0 at theta = pi exactly.
+    w = s2 / (s2 + eps * c.maximum(0.0) + 1e-30)
     k = (1.0 - w) * 0.5 + w * s.atan2(c) / (2.0 * s + eps)
     return [v * k for v in vee]
 
@@ -116,9 +129,7 @@ def ik_lm_step(robot, q, target, lam, frame=None, pos_weight=50.0, ori_weight=10
     Xe, J = _jacobian(robot, _poses(robot, q), frame)
     R = [[Xe[3 * k + i] for k in range(3)] for i in range(3)]  # world rotation: E^T
     qw, qx, qy, qz = target[0], target[1], target[2], target[3]
-    G = [[1.0 - 2.0 * (qy * qy + qz * qz), 2.0 * (qx * qy - qw * qz), 2.0 * (qx * qz + qw * qy)],
-         [2.0 * (qx * qy + qw * qz), 1.0 - 2.0 * (qx * qx + qz * qz), 2.0 * (qy * qz - qw * qx)],
-         [2.0 * (qx * qz - qw * qy), 2.0 * (qy * qz + qw * qx), 1.0 - 2.0 * (qx * qx + qy * qy)]]
+    G = _quat_matrix(qw, qx, qy, qz)
     Rerr = [[R[i][0] * G[j][0] + R[i][1] * G[j][1] + R[i][2] * G[j][2] for j in range(3)] for i in range(3)]
     ep = [Xe[9 + i] - target[4 + i] for i in range(3)]
     eo = _so3_log(Rerr)
@@ -142,9 +153,7 @@ def _pose_residual(robot, q, target, frame):
     Xe, J = _jacobian(robot, _poses(robot, q), frame)
     R = [[Xe[3 * k + i] for k in range(3)] for i in range(3)]
     qw, qx, qy, qz = target[0], target[1], target[2], target[3]
-    G = [[1.0 - 2.0 * (qy * qy + qz * qz), 2.0 * (qx * qy - qw * qz), 2.0 * (qx * qz + qw * qy)],
-         [2.0 * (qx * qy + qw * qz), 1.0 - 2.0 * (qx * qx + qz * qz), 2.0 * (qy * qz - qw * qx)],
-         [2.0 * (qx * qz - qw * qy), 2.0 * (qy * qz + qw * qx), 1.0 - 2.0 * (qx * qx + qy * qy)]]
+    G = _quat_matrix(qw, qx, qy, qz)
     Rerr = [[R[i][0] * G[j][0] + R[i][1] * G[j][1] + R[i][2] * G[j][2] for j in range(3)] for i in range(3)]
     return J, [Xe[9 + i] - target[4 + i] for i in range(3)], _so3_log(Rerr)
 
@@ -271,9 +280,7 @@ def _ik_geometry(robot, q, targets, frames, cols, wspheres, sspheres, jacobian):
         Xe, Jf = _jacobian(robot, X0, name)
         R = [[Xe[3 * k + i] for k in range(3)] for i in range(3)]
         qw, qx, qy, qz = (targets[7 * e + i] for i in range(4))
-        G = [[1.0 - 2.0 * (qy * qy + qz * qz), 2.0 * (qx * qy - qw * qz), 2.0 * (qx * qz + qw * qy)],
-             [2.0 * (qx * qy + qw * qz), 1.0 - 2.0 * (qx * qx + qz * qz), 2.0 * (qy * qz - qw * qx)],
-             [2.0 * (qx * qz - qw * qy), 2.0 * (qy * qz + qw * qx), 1.0 - 2.0 * (qx * qx + qy * qy)]]
+        G = _quat_matrix(qw, qx, qy, qz)
         Rerr = [[R[i][0] * G[j][0] + R[i][1] * G[j][1] + R[i][2] * G[j][2] for j in range(3)]
                 for i in range(3)]
         r += [Xe[9 + i] - targets[7 * e + 4 + i] for i in range(3)] + _so3_log(Rerr)
