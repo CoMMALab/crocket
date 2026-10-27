@@ -192,7 +192,7 @@ def ik_pose_cost(robot, q, target, frame=None, pos_weight=50.0, ori_weight=10.0)
 @algorithm(inputs=("q", ("target", lambda o: 7), ("lam", lambda o: 1)),
            outputs=("delta", "cost", "pos_err2", "ori_err2"))
 def ik_ls_step(robot, q, target, lam, frame=None, pos_weight=50.0, ori_weight=10.0):
-    """GRiM ``ls_ik``'s step direction (kernels/ik/ls_ik.cu): weighted residual and Jacobian,
+    """GRiM ``ls_ik``'s step direction (kernels/ik_crocket/ls_ik.cu): weighted residual and Jacobian,
     Jacobi column scaling, the outer normal equations ``(Js^T Js + lam I) d = -Js^T W r`` over
     the frame's chain joints (n x n, where ik_lm_step solves 6 x 6), unscaled. ``delta`` is zero
     off the chain; ``cost = |W r|^2`` at ``q``. Trust region, line search and acceptance belong
@@ -251,7 +251,7 @@ def ik_ls_solve(robot, Jw, r, lam, n=0):
 @algorithm(inputs=(("Jw", lambda o: 6 * o["n"]), ("r", lambda o: 6), ("lam", lambda o: 1)),
            outputs=("H", "g", "scale"))
 def ik_sqp_system(robot, Jw, r, lam, n=0):
-    """GRiM ``sqp_ik``'s QP in Jacobi-scaled space (kernels/ik/sqp_ik.cu): ``H = Js^T Js + lam I``
+    """GRiM ``sqp_ik``'s QP in Jacobi-scaled space (kernels/ik_crocket/sqp_ik.cu): ``H = Js^T Js + lam I``
     (row-major n x n), ``g = Js^T r`` and the column scales, ``Js = Jw / scale``. The active-set
     loop over the box bounds belongs to the caller; it re-solves with ``ik_masked_solve``."""
     zero = Scalar.const(robot.t, 0.0)
@@ -544,7 +544,7 @@ def rnea_derivatives(robot, q, qd, qdd):
 
 # ---------------------------------------------------------------------------
 # Closed-form IK of the 7-DOF "spherical shoulder, intersecting axes 5-6, offset axis 7" family
-# (Franka Panda / FR3): GRiM's kernels/ik/analytic_ik.cu, traced with its arm geometry folded in.
+# (Franka Panda / FR3): GRiM's kernels/ik_crocket/analytic_ik.cu, traced with its arm geometry folded in.
 # ---------------------------------------------------------------------------
 
 _SP_TOL, _TINY = 1e-6, 1e-12

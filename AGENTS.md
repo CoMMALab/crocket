@@ -8,7 +8,8 @@ GRiM uses it for `traced=True` kinematics and for `grim.motion.dynamics`.
 
 1. **Python front end** (`algorithms.py`, `trace.py`). Algorithms such as RNEA, CRBA, ABA,
    `rnea_derivatives`, `frame_poses`, `frame_jacobian`, `sphere_collision` (fused FK +
-   environment check) and `ik_lm_step` (one projected Levenberg-Marquardt IK step) are plain
+   environment check), `ik_lm_step` (one projected Levenberg-Marquardt IK step) and
+   `ik_geometry` (everything GRiM's IK kernels read about the robot; see the README) are plain
    Python. They operate on
    traced spatial types: `Scalar`, `Vec3`, `Motion`, `Force`, `Inertia`, `SE3`. The robot comes
    from `robot.py`, which uses GRiD's `URDFParser`, so joint order and constants match GRiD.
@@ -52,7 +53,7 @@ GRiM uses it for `traced=True` kinematics and for `grim.motion.dynamics`.
 | **crocket** | Robot-specific rigid-body math (FK, Jacobians, dynamics) at **large batch**, with one problem per thread. Specializing for the robot removes loops, branches, constant loads and zero products. Also use it when one algorithm source should produce several tiers. |
 | **GLASS** | Linear algebra that does not depend on the robot: Cholesky, GEMM, reductions. It is already templated on compile-time `N`, so tracing adds nothing. Traced code calls into it, as `fd_crba` does with GLASS Cholesky. |
 | **GRiD (via GRiM `generated_dynamics`)** | **Small batch on high-DOF robots** (latency), derivatives at small batch, runtime inertia, external forces, and second order (IDSVA). crocket folds inertias into constants and does not implement second order. |
-| **GRiM hand-written motion kernels** | Solver control flow that branches on data: iteration loops, accept/reject, early exit, convergence. The fixed-size math inside each iteration (FK, Jacobian, residual, the damped solve, the limit projection, collision terms) should be a traced crocket algorithm, not hand-written code calling traced FK through `kernels/robot.cuh` (`traced=True`). That swap alone gained 1.2-3x on IK; tracing the whole step gained 13-74x (see `benchmarks/README.md` on the `benchmarks` branch). |
+| **GRiM hand-written motion kernels** | Solver control flow that branches on data: iteration loops, accept/reject, early exit, convergence. The fixed-size math inside each iteration (FK, Jacobian, residual, the damped solve, the limit projection, collision terms) should be a traced crocket algorithm, not hand-written code calling traced FK through `kernels/robot.cuh` (`traced=True`). That swap alone gained 1.2-3x on IK; tracing the whole step gained 13-74x (see `benchmarks/README.md` on the `benchmarks` branch). GRiM's IK is built this way (`kernels/ik_crocket`: CUDA solver loops over `ik_geometry`), a median 13x over the hand-written kernels it replaced (GRiM `test/benchmarks/IK_RESULTS.md`). |
 
 Measured speedups, traced vs GRiD, as JAX wall time (`test/benchmarks/bench_traced_vs_generated.py`
 in GRiM, RTX A5000). Ratios above 1 favor crocket:
@@ -144,6 +145,15 @@ workload needs robot math, write a new algorithm for it. Do not wrap an existing
   --gpu-proof-enable` on a clean tree). Any change to `python/crocket`, `tests`, `resources` or
   `pyproject.toml` invalidates it. After that, re-record it, bump GRiM's pointer, and re-record
   GRiM's receipt.
+- **Cooperative variants need `units`.** `Variant("warp")` defaults to `units=1`, which runs
+  the whole trace on lane 0. Use `Variant("warp", units=32)` and `Variant("block", units=N)`.
+- **ptxas also miscompiles the cooperative tiers.** CUDA 13.3 reused uniform register UR4 across
+  the per-lane arms of a block stage's `switch (threadIdx.x)`: one arm materialised a constant in
+  it while another stored through it as a shared-memory base, giving an illegal address
+  (GRiM's g1-with-collision `ik_geometry` block build, float only; `-Xptxas -O1` did not help, and
+  the `__noinline__` stage split does not prevent it). An illegal shared address of the form
+  `0x4...` (a float's bits) inside a `_block_s<k>` stage points here. Run the block tier under
+  `compute-sanitizer` when adding a large traced algorithm.
 - **Known gaps.** There is no floating-base humanoid in the tests. Derivatives are checked only
   on panda and fr3, against finite differences. fr3 ABA is excluded with no stated reason. ABA
   and derivatives are unsupported on mimic joints, so use `fd_crba`.

@@ -1,5 +1,5 @@
 """The robot set and inputs shared by the tests: cricket's six test robots (kinematic copies in
-``resources/``) plus GRiD's ``config/robot_assets`` that stay inside v1's joint types (continuous
+``resources/``) plus GRiD's ``grid_assets/robots`` that stay inside v1's joint types (continuous
 joints have their own test: Pinocchio gives them nq = 2), including humanoids for wide trees."""
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from crocket.robot import GRID_DIR
 
 RESOURCES = Path(__file__).resolve().parents[1] / "resources"
 URDFS = {name: RESOURCES / f"{name}.urdf" for name in ("panda", "fr3", "ur5", "baxter", "fetch", "pr2")}
-URDFS.update({f"grid_{name}": GRID_DIR / "config" / "robot_assets" / f"{name}.urdf"
+URDFS.update({f"grid_{name}": GRID_DIR / "grid_assets" / "robots" / f"{name}.urdf"
               for name in ("fr3", "iiwa14", "rizon4", "baxter", "go2", "g1", "h1_2", "h2_plus")})
 ROBOTS = sorted(URDFS)
 SMALL = ["panda", "fr3", "ur5", "grid_iiwa14", "grid_go2"]  # for the expensive (GPU / derivative) checks
