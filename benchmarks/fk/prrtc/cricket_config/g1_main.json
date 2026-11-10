@@ -1,0 +1,10 @@
+{
+    "name": "G1",
+    "urdf": "g1/g1_spherized.urdf",
+    "srdf": "g1/g1.srdf",
+    "end_effector": "right_hand_palm_link",
+    "batch_size": 16,
+    "template": "templates/prrtc_main_template.hh",
+    "subtemplates": [],
+    "output": "g1_prrtc_main.hh"
+}

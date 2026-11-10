@@ -1,0 +1,434 @@
+[
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 1,
+  "op": "id",
+  "ms": 0.04865062015596777,
+  "variant": "thread",
+  "err": 1.018423277082421e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 1,
+  "op": "crba",
+  "ms": 0.042835199856199324,
+  "variant": "block",
+  "err": 1.473932236019698e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 1,
+  "op": "fd",
+  "ms": 0.0460338598350063,
+  "variant": "thread",
+  "err": 2.7956319854638423e-06
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 1,
+  "op": "id_du",
+  "ms": 0.11545265995664522,
+  "variant": "block",
+  "err": 3.092785771149878e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 128,
+  "op": "id",
+  "ms": 0.046617379994131625,
+  "variant": "block",
+  "err": 3.141398098071936e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 128,
+  "op": "crba",
+  "ms": 0.04331030009780079,
+  "variant": "block",
+  "err": 2.3325816320998213e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 128,
+  "op": "fd",
+  "ms": 0.04485643992666155,
+  "variant": "thread",
+  "err": 1.3295058078455213e-05
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 128,
+  "op": "id_du",
+  "ms": 0.11810488009359688,
+  "variant": "block",
+  "err": 2.501902964792005e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 1024,
+  "op": "id",
+  "ms": 0.045986380137037486,
+  "variant": "block",
+  "err": 3.141398098071936e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 1024,
+  "op": "crba",
+  "ms": 0.04407794011058286,
+  "variant": "thread",
+  "err": 2.346246512379467e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 1024,
+  "op": "fd",
+  "ms": 0.04526119999354705,
+  "variant": "thread",
+  "err": 1.3295058078455213e-05
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 1024,
+  "op": "id_du",
+  "ms": 0.13461056019878015,
+  "variant": "block",
+  "err": 2.501902964792005e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 16384,
+  "op": "id",
+  "ms": 0.04548502009129152,
+  "variant": "thread",
+  "err": 3.141398098071936e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 16384,
+  "op": "crba",
+  "ms": 0.06061147985747084,
+  "variant": "thread",
+  "err": 2.346246512379467e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 16384,
+  "op": "fd",
+  "ms": 0.04625108005711809,
+  "variant": "thread",
+  "err": 1.3295058078455213e-05
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 16384,
+  "op": "id_du",
+  "ms": 0.5350127400015481,
+  "variant": "thread",
+  "err": 2.411649715688886e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 1,
+  "op": "id",
+  "ms": 0.055145339865703136,
+  "variant": "thread",
+  "err": 4.754972602123327e-08
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 1,
+  "op": "crba",
+  "ms": 0.0619109399849549,
+  "variant": "block",
+  "err": 9.962907342429523e-08
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 1,
+  "op": "fd",
+  "ms": 0.11076577997300774,
+  "variant": "thread",
+  "err": 1.8824341871948036e-05
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 1,
+  "op": "id_du",
+  "ms": 0.19648546003736556,
+  "variant": "block",
+  "err": 1.0035674579921851e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 128,
+  "op": "id",
+  "ms": 0.06800189992645755,
+  "variant": "thread",
+  "err": 2.8858436024274275e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 128,
+  "op": "crba",
+  "ms": 0.06592257996089756,
+  "variant": "block",
+  "err": 1.4655319927077924e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 128,
+  "op": "fd",
+  "ms": 0.1308404200244695,
+  "variant": "block",
+  "err": 3.2365868264605524e-05
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 128,
+  "op": "id_du",
+  "ms": 0.20893244014587253,
+  "variant": "block",
+  "err": 1.4474840407454552e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 1024,
+  "op": "id",
+  "ms": 0.05250071990303695,
+  "variant": "thread",
+  "err": 2.8858436024274275e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 1024,
+  "op": "crba",
+  "ms": 0.10361963999457657,
+  "variant": "block",
+  "err": 1.4655319927077924e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 1024,
+  "op": "fd",
+  "ms": 0.15876215999014676,
+  "variant": "thread",
+  "err": 3.173952698176663e-05
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 1024,
+  "op": "id_du",
+  "ms": 0.30747983983019367,
+  "variant": "block",
+  "err": 1.4474840407454552e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 16384,
+  "op": "id",
+  "ms": 0.05866160005098209,
+  "variant": "thread",
+  "err": 2.840868535896611e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 16384,
+  "op": "crba",
+  "ms": 0.4462194402003661,
+  "variant": "thread",
+  "err": 1.903870728306271e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 16384,
+  "op": "fd",
+  "ms": 0.38939594000112265,
+  "variant": "thread",
+  "err": 3.696789778739884e-05
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 16384,
+  "op": "id_du",
+  "ms": 1.7136621999088675,
+  "variant": "thread",
+  "err": 2.615439869615611e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 1,
+  "op": "id",
+  "ms": 0.1386730800732039,
+  "variant": "thread",
+  "err": 1.3541707714968178e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 1,
+  "op": "crba",
+  "ms": 0.18239514000015333,
+  "variant": "block",
+  "err": 1.0956759249962704e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 1,
+  "op": "fd",
+  "ms": 0.28636784001719207,
+  "variant": "thread",
+  "err": 7.57802176281075e-05
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 1,
+  "op": "id_du",
+  "ms": 1.0422487001051195,
+  "variant": "block",
+  "err": 1.1197995283687885e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 128,
+  "op": "id",
+  "ms": 0.16837437986396253,
+  "variant": "block",
+  "err": 2.1838180827125467e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 128,
+  "op": "crba",
+  "ms": 0.21646995999617502,
+  "variant": "block",
+  "err": 3.3416778868360345e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 128,
+  "op": "fd",
+  "ms": 0.3069532598601654,
+  "variant": "block",
+  "err": 0.00038721734563296195
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 128,
+  "op": "id_du",
+  "ms": 1.145379800000228,
+  "variant": "block",
+  "err": 2.7974982741015507e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 1024,
+  "op": "id",
+  "ms": 0.2001834599650465,
+  "variant": "block",
+  "err": 2.1838180827125467e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 1024,
+  "op": "crba",
+  "ms": 0.41785127978073433,
+  "variant": "block",
+  "err": 3.3416778868360345e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 1024,
+  "op": "fd",
+  "ms": 0.3672770201228559,
+  "variant": "block",
+  "err": 0.00038721734563296195
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 1024,
+  "op": "id_du",
+  "ms": 1.7126813999493606,
+  "variant": "block",
+  "err": 2.7974982741015507e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 16384,
+  "op": "id",
+  "ms": 0.4725117000634782,
+  "variant": "thread",
+  "err": 2.8005985719327793e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 16384,
+  "op": "crba",
+  "ms": 11.71903264010325,
+  "variant": "thread",
+  "err": 3.3416778868360345e-07
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 16384,
+  "op": "fd",
+  "ms": 1.1829201801447198,
+  "variant": "thread",
+  "err": 0.00038441844705278447
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 16384,
+  "op": "id_du",
+  "ms": 30.707609200035222,
+  "variant": "thread",
+  "err": 2.7974982741015507e-07
+ }
+]

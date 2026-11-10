@@ -22,7 +22,20 @@ check: `spheres` folded in as constants, `n_boxes` boxes per call, output `min(d
 `ik_lm_step` (one Levenberg-Marquardt IK step for a frame's pose target, projected onto
 the joint limits; the caller runs the loop), and GRiM's LS IK step as `ik_ls_step` (Jacobi-scaled
 normal equations over the frame's chain), split into `ik_ls_system` and `ik_ls_solve` so the two
-halves can run at different precisions, with `ik_pose_cost` for the line search. Joints: revolute, prismatic, fixed, and mimic (except ABA).
+halves can run at different precisions, with `ik_pose_cost` for the line search.
+
+GRiM's IK kernels (`kernels/ik_crocket`) read everything about the robot from `ik_geometry`: the
+stacked pose residual and Jacobian of several frames, the world centres of collision spheres, and
+every joint's world twist, from which a collision gradient is a dot product. `ik_geometry_value`
+is the same without the Jacobian, for line-search trials. With `rot_joint`, a per-call `rot`
+(wxyz) replaces that movable joint's parent-to-joint rotation at q = 0 (a floating base's chart
+reference). Fixed joints are folded into the joints below them, so they cannot take one.
+`ik_sqp_system` and `ik_masked_solve` are SQP's Jacobi-scaled QP and its branch-free active-set
+re-solve. `analytic_ik_candidates` and `analytic_ik_chain` are the closed-form IK of the Panda
+family (8 branches per redundancy value) and its sphere-placement chain.
+
+Joints: revolute, continuous (a revolute joint without limits), prismatic, fixed, and mimic
+(except ABA).
 
 ## Usage
 
@@ -106,3 +119,11 @@ all on g1 dynamics derivatives, and GRiM's block tier is faster on Panda IK at 1
 Trace the whole computation. Swapping crocket's FK into GRiM's hand-written kernels gained
 1.2-3x on IK, nothing on collision, and nothing on FK alone, where pRRTC and cuRobo stay fastest;
 tracing GRiM's whole IK step gained 4.9-8.7x at equal algorithm and precision.
+
+GRiM now runs every IK method on crocket's `ik_geometry`. Over 4 robots, 3 target sets and 8
+methods, at 16384 problems x 8 seeds, the float32 build wins 75 of 78 cells against the
+hand-written kernels' fastest tier: 73 at the thread tier and the 2 analytic IK cells at the block
+tier. The median speedup is 13x: 15-80x for LS, SQP and HJCD LM without collision, 4-10x for
+them with collision, 3-17x for DLS, MPPI and canonical IK. The hand-written kernel keeps
+multi-end-effector DLS (crocket is 1.3-1.8x slower there). The full
+table is GRiM's `test/benchmarks/IK_RESULTS.md`.

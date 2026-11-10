@@ -120,18 +120,20 @@ class Robot:
         self.joints: list[Joint] = []
         for jid in range(parsed.get_num_bodies()):
             j = parsed.get_joint_by_id(jid)
-            if j.jtype not in ("revolute", "prismatic"):
+            if j.jtype not in ("revolute", "continuous", "prismatic"):
                 raise ValueError(f"Unsupported joint type {j.jtype!r} (joint {j.name!r}): "
-                                 "crocket supports revolute, prismatic and fixed joints")
+                                 "crocket supports revolute, continuous, prismatic and fixed joints")
             parent = parsed.get_parent_id(jid)
-            E, r = _fit(j.jtype, parsed.get_Xmat_Func_by_id(jid))
+            kind = "revolute" if j.jtype == "continuous" else j.jtype   # an unlimited revolute
+            E, r = _fit(kind, parsed.get_Xmat_Func_by_id(jid))
             self.joints.append(Joint(
-                name=j.name, kind=j.jtype, parent=parent,
+                name=j.name, kind=kind, parent=parent,
                 depth=0 if parent == -1 else self.joints[parent].depth + 1,
                 q_index=int(parsed.get_joint_index_q(jid)),
                 multiplier=float(j.mimic_multiplier) if j.is_mimic else 1.0,
                 offset=float(j.mimic_offset) if j.is_mimic else 0.0, mimic=bool(j.is_mimic),
-                limits=tuple(float(x) for x in parsed.get_joint_limits_by_id(jid)) or (-np.pi, np.pi),
+                limits=(-np.inf, np.inf) if j.jtype == "continuous" else
+                tuple(float(x) for x in parsed.get_joint_limits_by_id(jid)) or (-np.pi, np.pi),
                 E=E, r=r, S=_clean(np.asarray(parsed.get_S_by_id(jid), float).reshape(6)),
                 I=np.asarray(parsed.get_Imat_by_id(jid), float)))
         by_name = {j.name: i for i, j in enumerate(self.joints)}

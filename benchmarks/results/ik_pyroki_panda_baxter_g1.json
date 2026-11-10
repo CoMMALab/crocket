@@ -1,0 +1,101 @@
+[
+ {
+  "method": "pyroki",
+  "robot": "panda",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 139.38298360008048,
+  "tier": "vmap",
+  "success": 1.0,
+  "pos_mm": 0.0002874499660598296,
+  "ori_rad": 2.7797755757239e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "panda",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 284.17989626002964,
+  "tier": "vmap",
+  "success": 0.9921875,
+  "pos_mm": 8.340998458907807e-05,
+  "ori_rad": 2.1849332224597723e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "panda",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 842.1263184200507,
+  "tier": "vmap",
+  "success": 0.982421875,
+  "pos_mm": 8.554694466104283e-05,
+  "ori_rad": 2.0647654623614315e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "baxter",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 452.209966579976,
+  "tier": "vmap",
+  "success": 1.0,
+  "pos_mm": 0.00016880849700811451,
+  "ori_rad": 1.6458870496134868e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "baxter",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 826.0092571200221,
+  "tier": "vmap",
+  "success": 0.984375,
+  "pos_mm": 0.00013007969461430633,
+  "ori_rad": 2.3371558102008936e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "baxter",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 2807.429370919999,
+  "tier": "vmap",
+  "success": 0.9892578125,
+  "pos_mm": 0.0001224955202287467,
+  "ori_rad": 2.1900144899933185e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "g1",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 229.9355031599407,
+  "tier": "vmap",
+  "success": 1.0,
+  "pos_mm": 0.00010106977639672644,
+  "ori_rad": 4.2566230467217587e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "g1",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 1114.588735679863,
+  "tier": "vmap",
+  "success": 1.0,
+  "pos_mm": 6.979568697801295e-05,
+  "ori_rad": 1.908244251317011e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "g1",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 5573.168890679954,
+  "tier": "vmap",
+  "success": 1.0,
+  "pos_mm": 6.829929291886869e-05,
+  "ori_rad": 1.9936317152623173e-07
+ }
+]

@@ -1,0 +1,86 @@
+[
+ {
+  "method": "curobo",
+  "robot": "panda",
+  "batch": 1,
+  "ms": 0.1853800000390038,
+  "max_err": 3.861329517240719e-08
+ },
+ {
+  "method": "curobo",
+  "robot": "panda",
+  "batch": 128,
+  "ms": 0.1841528998920694,
+  "max_err": 2.0242253073732286e-07
+ },
+ {
+  "method": "curobo",
+  "robot": "panda",
+  "batch": 1024,
+  "ms": 0.1849561999551952,
+  "max_err": 2.0242253073732286e-07
+ },
+ {
+  "method": "curobo",
+  "robot": "panda",
+  "batch": 16384,
+  "ms": 0.18584028002806008,
+  "max_err": 2.0242253073732286e-07
+ },
+ {
+  "method": "curobo",
+  "robot": "baxter",
+  "batch": 1,
+  "ms": 0.1843851400190033,
+  "max_err": 1.4106721746287576e-07
+ },
+ {
+  "method": "curobo",
+  "robot": "baxter",
+  "batch": 128,
+  "ms": 0.18405932001769543,
+  "max_err": 3.094043634632726e-07
+ },
+ {
+  "method": "curobo",
+  "robot": "baxter",
+  "batch": 1024,
+  "ms": 0.18852036009775475,
+  "max_err": 3.094043634632726e-07
+ },
+ {
+  "method": "curobo",
+  "robot": "baxter",
+  "batch": 16384,
+  "ms": 0.5035287200007588,
+  "max_err": 3.094043634632726e-07
+ },
+ {
+  "method": "curobo",
+  "robot": "g1",
+  "batch": 1,
+  "ms": 0.18582043994683772,
+  "max_err": 7.495265819112973e-08
+ },
+ {
+  "method": "curobo",
+  "robot": "g1",
+  "batch": 128,
+  "ms": 0.18607250007335097,
+  "max_err": 1.3310444668679366e-07
+ },
+ {
+  "method": "curobo",
+  "robot": "g1",
+  "batch": 1024,
+  "ms": 0.18623903975822031,
+  "max_err": 1.589457722106502e-07
+ },
+ {
+  "method": "curobo",
+  "robot": "g1",
+  "batch": 16384,
+  "ms": 0.7877673002076335,
+  "max_err": 1.589457722106502e-07
+ }
+]

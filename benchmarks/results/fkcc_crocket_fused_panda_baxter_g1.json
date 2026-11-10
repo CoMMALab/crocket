@@ -1,0 +1,122 @@
+[
+ {
+  "method": "crocket_fused",
+  "robot": "panda",
+  "batch": 1,
+  "ms": 0.193638,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "thread",
+  "collide": 0.0
+ },
+ {
+  "method": "crocket_fused",
+  "robot": "panda",
+  "batch": 128,
+  "ms": 0.195277,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "thread",
+  "collide": 0.25
+ },
+ {
+  "method": "crocket_fused",
+  "robot": "panda",
+  "batch": 1024,
+  "ms": 0.184033,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "thread",
+  "collide": 0.40625
+ },
+ {
+  "method": "crocket_fused",
+  "robot": "panda",
+  "batch": 16384,
+  "ms": 0.366711,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "thread",
+  "collide": 0.4638671875
+ },
+ {
+  "method": "crocket_fused",
+  "robot": "baxter",
+  "batch": 1,
+  "ms": 0.256492,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "thread",
+  "collide": 0.0
+ },
+ {
+  "method": "crocket_fused",
+  "robot": "baxter",
+  "batch": 128,
+  "ms": 0.256939,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "thread",
+  "collide": 0.75
+ },
+ {
+  "method": "crocket_fused",
+  "robot": "baxter",
+  "batch": 1024,
+  "ms": 0.24662,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "thread",
+  "collide": 0.5
+ },
+ {
+  "method": "crocket_fused",
+  "robot": "baxter",
+  "batch": 16384,
+  "ms": 0.53473,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "thread",
+  "collide": 0.470703125
+ },
+ {
+  "method": "crocket_fused",
+  "robot": "g1",
+  "batch": 1,
+  "ms": 0.184054,
+  "agree": 1.0,
+  "boxes": 7,
+  "variant": "thread",
+  "collide": 0.0
+ },
+ {
+  "method": "crocket_fused",
+  "robot": "g1",
+  "batch": 128,
+  "ms": 0.187534,
+  "agree": 1.0,
+  "boxes": 7,
+  "variant": "thread",
+  "collide": 0.5
+ },
+ {
+  "method": "crocket_fused",
+  "robot": "g1",
+  "batch": 1024,
+  "ms": 0.178708,
+  "agree": 1.0,
+  "boxes": 7,
+  "variant": "thread",
+  "collide": 0.453125
+ },
+ {
+  "method": "crocket_fused",
+  "robot": "g1",
+  "batch": 16384,
+  "ms": 0.30718,
+  "agree": 1.0,
+  "boxes": 7,
+  "variant": "thread",
+  "collide": 0.4560546875
+ }
+]

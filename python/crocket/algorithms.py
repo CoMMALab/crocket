@@ -9,17 +9,41 @@ matrices are ``n_q x n_q`` column-major.
 
 from __future__ import annotations
 
+import math
+
+import numpy as np
+
 from .trace import Motion, SE3, Scalar, algorithm
 
 
-def _poses(robot, q):
-    """World-to-joint transform of every joint."""
+def _poses(robot, q, rot=(), rot_joint=-1):
+    """World-to-joint transform of every joint. With ``rot_joint`` >= 0, ``rot`` (wxyz) replaces
+    the rotation of that joint's parent-to-joint transform at q = 0 (its translation stays)."""
     X0 = {}
     for j in robot.joints:
         X = robot.Xup(j, robot.q(j, q))
+        if j == rot_joint:
+            X = X @ _reorient(robot, j, rot)
         p = robot.parent(j)
         X0[j] = X if p < 0 else X @ X0[p]
     return X0
+
+
+def _reorient(robot, j, rot):
+    """``A`` with ``A T(q) = T'(q)``: T the joint's parent-to-joint pose, T' the same with its
+    q = 0 rotation ``Rc`` replaced by ``rot``. A = (R', pc) (Rc, pc)^-1 = (R' Rc^T, pc - R' Rc^T pc)."""
+    jt = robot.robot.joints[j]
+    Ec = jt.E[0] + jt.E[1] if jt.kind == "revolute" else jt.E[0]   # E = R^T at q = 0
+    pc = jt.r[0] + jt.r[1] if jt.kind == "revolute" else jt.r[0]
+    Rp = _quat_matrix(*rot)
+    zero = Scalar.const(robot.t, 0.0)
+    RA = [[sum((Rp[i][k] * float(Ec[k][m]) for k in range(3) if Ec[k][m] != 0.0), zero)
+           for m in range(3)] for i in range(3)]                   # R' Rc^T, Rc^T = Ec
+    tA = [float(pc[i]) - sum((RA[i][m] * float(pc[m]) for m in range(3) if pc[m] != 0.0), zero)
+          for i in range(3)]
+    elems = [RA[m][i] for i in range(3) for m in range(3)] + tA    # [R_A^T row-major, t_A]
+    return robot.t.record("se3_pack", SE3, tuple(elems),
+                          lambda *e: np.array([int(np.asarray(x).reshape(-1)[0]) for x in e], np.int64))
 
 
 def _frame(robot, X0, name):
@@ -60,6 +84,16 @@ def frame_jacobian(robot, q, frame=None):
     return _pose_out(Xe), J
 
 
+def _quat_matrix(qw, qx, qy, qz):
+    """Rotation of the quaternion ``(qw, qx, qy, qz)`` in the form exact for ANY norm
+    (``2 / |q|^2`` in place of 2). Targets reach the kernels in float32, a few ulps off unit, and
+    the unit-norm form's non-orthogonality is amplified by the log near theta = pi (1e-4 rad)."""
+    k = 2.0 / (qw * qw + qx * qx + qy * qy + qz * qz)
+    return [[1.0 - k * (qy * qy + qz * qz), k * (qx * qy - qw * qz), k * (qx * qz + qw * qy)],
+            [k * (qx * qy + qw * qz), 1.0 - k * (qx * qx + qz * qz), k * (qy * qz - qw * qx)],
+            [k * (qx * qz - qw * qy), k * (qy * qz + qw * qx), 1.0 - k * (qx * qx + qy * qy)]]
+
+
 def _so3_log(R, eps=1e-12):
     """``log(R)^vee``, smooth through theta = 0: the Taylor form ``vee / 2`` blended with the
     exact ``theta / (2 sin theta) vee`` by ``w = sin^2 / (sin^2 + eps)`` (McVAMP's so3_log_smooth).
@@ -69,7 +103,10 @@ def _so3_log(R, eps=1e-12):
     s2 = (vee[0] * vee[0] + vee[1] * vee[1] + vee[2] * vee[2]) * 0.25
     s = s2.sqrt()
     c = (R[0][0] + R[1][1] + R[2][2] - 1.0) * 0.5
-    w = s2 / (s2 + eps)
+    # The blend is for theta -> 0; near pi sin -> 0 too, where blending would bias the exact
+    # branch by eps / sin^2 (3.8e-6 rad at theta = pi - 1e-3). Gating eps on cos > 0 keeps it off
+    # there; 1e-30 only guards the 0 / 0 at theta = pi exactly.
+    w = s2 / (s2 + eps * c.maximum(0.0) + 1e-30)
     k = (1.0 - w) * 0.5 + w * s.atan2(c) / (2.0 * s + eps)
     return [v * k for v in vee]
 
@@ -114,9 +151,7 @@ def ik_lm_step(robot, q, target, lam, frame=None, pos_weight=50.0, ori_weight=10
     Xe, J = _jacobian(robot, _poses(robot, q), frame)
     R = [[Xe[3 * k + i] for k in range(3)] for i in range(3)]  # world rotation: E^T
     qw, qx, qy, qz = target[0], target[1], target[2], target[3]
-    G = [[1.0 - 2.0 * (qy * qy + qz * qz), 2.0 * (qx * qy - qw * qz), 2.0 * (qx * qz + qw * qy)],
-         [2.0 * (qx * qy + qw * qz), 1.0 - 2.0 * (qx * qx + qz * qz), 2.0 * (qy * qz - qw * qx)],
-         [2.0 * (qx * qz - qw * qy), 2.0 * (qy * qz + qw * qx), 1.0 - 2.0 * (qx * qx + qy * qy)]]
+    G = _quat_matrix(qw, qx, qy, qz)
     Rerr = [[R[i][0] * G[j][0] + R[i][1] * G[j][1] + R[i][2] * G[j][2] for j in range(3)] for i in range(3)]
     ep = [Xe[9 + i] - target[4 + i] for i in range(3)]
     eo = _so3_log(Rerr)
@@ -140,9 +175,7 @@ def _pose_residual(robot, q, target, frame):
     Xe, J = _jacobian(robot, _poses(robot, q), frame)
     R = [[Xe[3 * k + i] for k in range(3)] for i in range(3)]
     qw, qx, qy, qz = target[0], target[1], target[2], target[3]
-    G = [[1.0 - 2.0 * (qy * qy + qz * qz), 2.0 * (qx * qy - qw * qz), 2.0 * (qx * qz + qw * qy)],
-         [2.0 * (qx * qy + qw * qz), 1.0 - 2.0 * (qx * qx + qz * qz), 2.0 * (qy * qz - qw * qx)],
-         [2.0 * (qx * qz - qw * qy), 2.0 * (qy * qz + qw * qx), 1.0 - 2.0 * (qx * qx + qy * qy)]]
+    G = _quat_matrix(qw, qx, qy, qz)
     Rerr = [[R[i][0] * G[j][0] + R[i][1] * G[j][1] + R[i][2] * G[j][2] for j in range(3)] for i in range(3)]
     return J, [Xe[9 + i] - target[4 + i] for i in range(3)], _so3_log(Rerr)
 
@@ -159,7 +192,7 @@ def ik_pose_cost(robot, q, target, frame=None, pos_weight=50.0, ori_weight=10.0)
 @algorithm(inputs=("q", ("target", lambda o: 7), ("lam", lambda o: 1)),
            outputs=("delta", "cost", "pos_err2", "ori_err2"))
 def ik_ls_step(robot, q, target, lam, frame=None, pos_weight=50.0, ori_weight=10.0):
-    """GRiM ``ls_ik``'s step direction (kernels/ik/ls_ik.cu): weighted residual and Jacobian,
+    """GRiM ``ls_ik``'s step direction (kernels/ik_crocket/ls_ik.cu): weighted residual and Jacobian,
     Jacobi column scaling, the outer normal equations ``(Js^T Js + lam I) d = -Js^T W r`` over
     the frame's chain joints (n x n, where ik_lm_step solves 6 x 6), unscaled. ``delta`` is zero
     off the chain; ``cost = |W r|^2`` at ``q``. Trust region, line search and acceptance belong
@@ -213,6 +246,104 @@ def ik_ls_system(robot, q, target, frame=None, pos_weight=50.0, ori_weight=10.0)
 def ik_ls_solve(robot, Jw, r, lam, n=0):
     """Second half of ``ik_ls_step``: the step over the ``n`` chain columns."""
     return _ls_solve(robot, Jw, r, lam, n)
+
+
+@algorithm(inputs=(("Jw", lambda o: 6 * o["n"]), ("r", lambda o: 6), ("lam", lambda o: 1)),
+           outputs=("H", "g", "scale"))
+def ik_sqp_system(robot, Jw, r, lam, n=0):
+    """GRiM ``sqp_ik``'s QP in Jacobi-scaled space (kernels/ik_crocket/sqp_ik.cu): ``H = Js^T Js + lam I``
+    (row-major n x n), ``g = Js^T r`` and the column scales, ``Js = Jw / scale``. The active-set
+    loop over the box bounds belongs to the caller; it re-solves with ``ik_masked_solve``."""
+    zero = Scalar.const(robot.t, 0.0)
+    Jw = [Jw[n * k:n * k + n] for k in range(6)]
+    scale = [sum((Jw[k][i] * Jw[k][i] for k in range(6)), zero).sqrt() + 1e-8 for i in range(n)]
+    Js = [[Jw[k][i] / scale[i] for i in range(n)] for k in range(6)]
+    H = [sum((Js[k][i] * Js[k][j] for k in range(6)), lam[0] if i == j else zero)
+         for i in range(n) for j in range(n)]
+    return H, [sum((Js[k][i] * r[k] for k in range(6)), zero) for i in range(n)], scale
+
+
+@algorithm(inputs=(("H", lambda o: o["n"] ** 2), ("g", lambda o: o["n"]), ("pb", lambda o: o["n"]),
+                   ("active", lambda o: o["n"])), outputs=("p",))
+def ik_masked_solve(robot, H, g, pb, active, n=0):
+    """One active-set re-solve of GRiM ``sqp_ik``, branch-free: ``active`` is 1 for a joint held
+    at its bound ``pb`` (0 for free joints, whose ``pb`` must be 0). Free joints solve
+    ``H_ff p_f = -(g + H pb)_f``; active rows are identity with right-hand side 0, and the caller
+    puts ``pb`` back. With ``active = 0`` it is the unconstrained Newton step."""
+    one = Scalar.const(robot.t, 1.0)
+    H = [H[n * i:n * i + n] for i in range(n)]
+    free = [one - a for a in active]
+    A = [[H[i][j] * (free[i] * free[j]) + (active[i] if i == j else 0.0) for j in range(n)]
+         for i in range(n)]
+    rhs = [-(g[i] + sum((H[i][j] * pb[j] for j in range(n)), Scalar.const(robot.t, 0.0))) * free[i]
+           for i in range(n)]
+    return (_cholesky_solve(A, rhs),)
+
+
+def _sphere_centres(robot, X0, spheres):
+    """World centres ``t + E^T c`` of ``(frame, centre)`` spheres, flat ``3 * len(spheres)``."""
+    out = []
+    for name, centre in spheres:
+        X = _frame(robot, X0, name)
+        p = [X[9 + i] for i in range(3)]
+        for k in range(3):
+            if centre[k] != 0.0:
+                for i in range(3):
+                    p[i] = p[i] + X[3 * k + i] * float(centre[k])
+        out += p
+    return out
+
+
+def _ik_geometry(robot, q, targets, rot, rot_joint, frames, cols, wspheres, sspheres, jacobian):
+    X0 = _poses(robot, q, rot, rot_joint)
+    zero = Scalar.const(robot.t, 0.0)
+    r, J = [], []
+    for e, name in enumerate(frames):
+        Xe, Jf = _jacobian(robot, X0, name)
+        R = [[Xe[3 * k + i] for k in range(3)] for i in range(3)]
+        qw, qx, qy, qz = (targets[7 * e + i] for i in range(4))
+        G = _quat_matrix(qw, qx, qy, qz)
+        Rerr = [[R[i][0] * G[j][0] + R[i][1] * G[j][1] + R[i][2] * G[j][2] for j in range(3)]
+                for i in range(3)]
+        r += [Xe[9 + i] - targets[7 * e + 4 + i] for i in range(3)] + _so3_log(Rerr)
+        J += [Jf[row][c] for row in range(6) for c in cols]
+    cw, cs = _sphere_centres(robot, X0, wspheres), _sphere_centres(robot, X0, sspheres)
+    if not jacobian:
+        return r, cw, cs
+    tw = []
+    for j in robot.joints:  # world twist at the world origin, [w, v_o], times the mimic scale
+        m = X0[j].inv() @ robot.S(j)
+        tw += [m[k] * robot.scale(j) for k in range(6)]
+    return r, J, cw, cs, (tw if (wspheres or sspheres) else [zero] * 0)
+
+
+_ROT = ("rot", lambda o: 4 if o.get("rot_joint", -1) >= 0 else 0)
+
+
+@algorithm(inputs=("q", ("targets", lambda o: 7 * len(o.get("frames", ()))), _ROT),
+           outputs=("r", "J", "cw", "cs", "tw"))
+def ik_geometry(robot, q, targets, rot, frames=(), cols=(), wspheres=(), sspheres=(), rot_joint=-1):
+    """Everything an IK iteration reads from the robot, for several target frames at once.
+
+    ``r`` is the stacked unweighted pose residual ``[p - p*, log(R R*^T)]`` per frame (6 each)
+    against ``targets`` (``[qw, qx, qy, qz, x, y, z]`` per frame), ``J`` the stacked
+    LOCAL_WORLD_ALIGNED Jacobian over the q columns ``cols`` (row-major ``6 n_frames x
+    len(cols)``). ``cw`` / ``cs`` are the world centres of the ``(frame, centre)`` spheres
+    ``wspheres`` (world collision) and ``sspheres`` (self collision), 3 each. ``tw`` is every
+    joint's world twist at the world origin ``[w, v_o]`` times its mimic scale, 6 per joint in
+    ``robot.joints`` order (empty without spheres): a sphere centre ``c`` moves with
+    ``v_o + w x c`` per unit of that joint's column, which is all a collision gradient needs.
+    Distances to runtime obstacles and the active set belong to the caller. ``rot_joint`` >= 0
+    takes ``rot`` (wxyz), the rotation of that joint's parent-to-joint transform at q = 0, per
+    call (a floating base's chart reference); ``rot`` is empty otherwise."""
+    return _ik_geometry(robot, q, targets, rot, rot_joint, frames, cols, wspheres, sspheres, True)
+
+
+@algorithm(inputs=("q", ("targets", lambda o: 7 * len(o.get("frames", ()))), _ROT),
+           outputs=("r", "cw", "cs"))
+def ik_geometry_value(robot, q, targets, rot, frames=(), cols=(), wspheres=(), sspheres=(), rot_joint=-1):
+    """``ik_geometry`` without the Jacobian and twists: the merit of a line-search trial."""
+    return _ik_geometry(robot, q, targets, rot, rot_joint, frames, cols, wspheres, sspheres, False)
 
 
 def _min_tree(xs):
@@ -409,3 +540,219 @@ def rnea_derivatives(robot, q, qd, qdd):
         for j in robot.joints:
             f[j] = I[j] @ a[j] + v[j].cross_dual(I[j] @ v[j])
     return tuple(out)
+
+
+# ---------------------------------------------------------------------------
+# Closed-form IK of the 7-DOF "spherical shoulder, intersecting axes 5-6, offset axis 7" family
+# (Franka Panda / FR3): GRiM's kernels/ik_crocket/analytic_ik.cu, traced with its arm geometry folded in.
+# ---------------------------------------------------------------------------
+
+_SP_TOL, _TINY = 1e-6, 1e-12
+
+
+class _Arm:
+    """The analytic solver's geometry (GRiM's ArmGeom field order, 95 scalars) as traced
+    constants, plus the scalar helpers the closed form needs."""
+
+    def __init__(self, t, geom):
+        g = [float(x) for x in geom]
+        assert len(g) == 95, len(g)
+        c = lambda v: Scalar.const(t, v)  # noqa: E731
+        self.t, self.c = t, c
+        self.axes = [[c(v) for v in g[3 * i:3 * i + 3]] for i in range(7)]
+        self.points = [[c(v) for v in g[21 + 3 * i:24 + 3 * i]] for i in range(7)]
+        self.axes_f = [g[3 * i:3 * i + 3] for i in range(7)]
+        self.shoulder = [c(v) for v in g[42:45]]
+        self.wrist = [c(v) for v in g[45:48]]
+        self.m_home = [c(v) for v in g[48:64]]
+        self.m_home_inv = [c(v) for v in g[64:80]]
+        self.cos_alpha = c(g[80])
+
+    # -- small linear algebra over traced scalars -------------------------------------------
+    @staticmethod
+    def dot(a, b):
+        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+    @staticmethod
+    def cross(a, b):
+        return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+
+    def norm(self, a):
+        return self.dot(a, a).sqrt()
+
+    def unit(self, a):
+        n = self.norm(a).maximum(_TINY)   # the kernel's `n > TINY ? n : 1`, smooth in n
+        return [x / n for x in a]
+
+    @staticmethod
+    def mv(M, v):
+        return [M[3 * i] * v[0] + M[3 * i + 1] * v[1] + M[3 * i + 2] * v[2] for i in range(3)]
+
+    @staticmethod
+    def mm(A, B):
+        return [A[3 * i] * B[j] + A[3 * i + 1] * B[3 + j] + A[3 * i + 2] * B[6 + j]
+                for i in range(3) for j in range(3)]
+
+    @staticmethod
+    def mtm(A, B):
+        return [A[i] * B[j] + A[3 + i] * B[3 + j] + A[6 + i] * B[6 + j] for i in range(3) for j in range(3)]
+
+    @staticmethod
+    def m4(A, B):
+        return [sum((A[4 * i + k] * B[4 * k + j] for k in range(1, 4)), A[4 * i] * B[j])
+                for i in range(4) for j in range(4)]
+
+    def rot(self, k, th):
+        cth, sth = th.cos(), th.sin()
+        v = 1.0 - cth
+        x, y, z = k
+        return [cth + x * x * v, x * y * v - z * sth, x * z * v + y * sth,
+                x * y * v + z * sth, cth + y * y * v, y * z * v - x * sth,
+                x * z * v - y * sth, y * z * v + x * sth, cth + z * z * v]
+
+    @staticmethod
+    def wrap(th):
+        return th.sin().atan2(th.cos())
+
+    def acos(self, x):
+        return (1.0 - x * x).maximum(0.0).sqrt().atan2(x)
+
+    def screw(self, i, th):
+        R = self.rot(self.axes[i], th)
+        p = self.points[i]
+        Rp = self.mv(R, p)
+        z, o = self.c(0.0), self.c(1.0)
+        return [R[0], R[1], R[2], p[0] - Rp[0], R[3], R[4], R[5], p[1] - Rp[1],
+                R[6], R[7], R[8], p[2] - Rp[2], z, z, z, o]
+
+    # -- Paden-Kahan subproblems -------------------------------------------------------------
+    def sp4(self, h, p, k, d):
+        """h . rot(k, th) p = d -> two roots. Past the sinusoid's reach the clamped ratio gives
+        acos = 0 or pi: the residual-minimising angle, as the kernel's least-squares branch."""
+        kp, hk = self.dot(k, p), self.dot(h, k)
+        A = self.dot(h, p) - hk * kp
+        B = self.dot(h, self.cross(k, p))
+        R = (A * A + B * B).sqrt()
+        phi = B.atan2(A)
+        ratio = ((d - hk * kp) / R.maximum(_SP_TOL)).maximum(-1.0).minimum(1.0)
+        delta = self.acos(ratio)
+        return self.wrap(phi + delta), self.wrap(phi - delta)
+
+    def sp3(self, p1, p2, k, d):
+        return self.sp4(p2, p1, k, 0.5 * (self.dot(p1, p1) + self.dot(p2, p2) - d * d))
+
+    def sp1(self, p1, p2, k):
+        kp1, kp2 = self.dot(k, p1), self.dot(k, p2)
+        a = [p1[i] - k[i] * kp1 for i in range(3)]
+        b = [p2[i] - k[i] * kp2 for i in range(3)]
+        return self.wrap(self.dot(k, self.cross(a, b)).atan2(self.dot(a, b)))
+
+    def sp2(self, p1, p2, k1, k2):
+        t2 = self.sp4(k1, p2, k2, self.dot(k1, p1))
+        t1 = tuple(self.sp1(p1, self.mv(self.rot(k2, t), p2), k1) for t in t2)
+        return t1, t2
+
+    def rot_two(self, a1, a2, b1, b2):
+        """The rotation carrying a1 -> b1 and a2 -> b2 (Gram-Schmidt frames)."""
+        def frame(u, v):
+            e1 = self.unit(u)
+            d = self.dot(e1, v)
+            e2 = self.unit([v[i] - e1[i] * d for i in range(3)])
+            e3 = self.cross(e1, e2)
+            return [e1[0], e2[0], e3[0], e1[1], e2[1], e3[1], e1[2], e2[2], e3[2]]
+        E, F = frame(a1, a2), frame(b1, b2)
+        Et = [E[3 * j + i] for i in range(3) for j in range(3)]
+        return self.mm(F, Et)
+
+    def perp(self, i):
+        """A unit vector perpendicular to axis i, chosen on its constant direction."""
+        k = self.axes_f[i]
+        alt = [1.0, 0.0, 0.0] if abs(k[0]) < 0.9 else [0.0, 1.0, 0.0]
+        v = [k[1] * alt[2] - k[2] * alt[1], k[2] * alt[0] - k[0] * alt[2], k[0] * alt[1] - k[1] * alt[0]]
+        n = math.sqrt(sum(x * x for x in v))
+        return [self.c(x / n) for x in v]
+
+    # -- the solve ---------------------------------------------------------------------------
+    def candidates(self, G, q7):
+        """The 8 branches (elbow root, z sign, shoulder pair) for one q7 -> list of 7-vectors."""
+        k = self.axes
+        GB = self.m4(G, self.screw(6, -q7))
+        R6 = [GB[4 * i + j] for i in range(3) for j in range(3)]
+        W = [w + GB[4 * i + 3] for i, w in enumerate(self.mv(R6, self.wrist))]
+        a6 = self.mv(R6, k[5])
+        w = [W[i] - self.shoulder[i] for i in range(3)]
+        wn = self.norm(w)
+        w_hat = [x / wn.maximum(_TINY) for x in w]
+        p1 = [self.wrist[i] - self.points[3][i] for i in range(3)]
+        p2 = [self.shoulder[i] - self.points[3][i] for i in range(3)]
+        out = [None] * 8
+        for i4, q4 in enumerate(self.sp3(p1, p2, k[3], wn)):
+            R4q = self.rot(k[3], q4)
+            v3 = [x + self.points[3][i] - self.shoulder[i] for i, x in enumerate(self.mv(R4q, p1))]
+            m3 = self.mv(R4q, k[4])
+            v3_hat = [x / self.norm(v3).maximum(_TINY) for x in v3]
+            c1, c2, gg = self.dot(m3, v3_hat), self.cos_alpha, self.dot(w_hat, a6)
+            det = (1.0 - gg * gg).maximum(_TINY)
+            z_par = [((c1 - gg * c2) / det) * w_hat[i] + ((c2 - gg * c1) / det) * a6[i] for i in range(3)]
+            perp = self.cross(w_hat, a6)
+            perp_hat = [x / self.norm(perp).maximum(_TINY) for x in perp]
+            c_mag = (1.0 - self.dot(z_par, z_par)).maximum(0.0).sqrt()
+            for isign, sgn in enumerate((1.0, -1.0)):
+                z = [z_par[i] + sgn * c_mag * perp_hat[i] for i in range(3)]
+                R3 = self.rot_two(v3_hat, m3, w_hat, z)
+                t1, t2 = self.sp2(self.mv(R3, k[2]), k[2], k[0], k[1])
+                R4m = self.mm(R3, self.rot(k[3], q4))
+                Q = self.mtm(R4m, R6)
+                q5 = self.sp1(k[5], self.mv(Q, k[5]), k[4])
+                Pw = self.mm(self.rot(k[4], -q5), Q)
+                uw = self.perp(5)
+                q6 = self.sp1(uw, self.mv(Pw, uw), k[5])
+                for ipair in range(2):
+                    q1, q2 = -t1[ipair], t2[ipair]
+                    Pfull = self.mm(self.mm(self.rot(k[1], -q2), self.rot(k[0], -q1)), R3)
+                    u = self.perp(2)
+                    q3 = self.sp1(u, self.mv(Pfull, u), k[2])
+                    out[i4 | (isign << 1) | (ipair << 2)] = [q1, q2, q3, q4, q5, q6, q7]
+        return out
+
+    def chain(self, q):
+        """Cumulative screw products T_0 = I, T_d = T_{d-1} exp([S_d] q_d), rows 0-2 of each."""
+        z, o = self.c(0.0), self.c(1.0)
+        T = [o, z, z, z, z, o, z, z, z, z, o, z, z, z, z, o]
+        out = [T[:12]]
+        for i in range(7):
+            T = self.m4(T, self.screw(i, q[i]))
+            out.append(T[:12])
+        return out
+
+    def pose_error(self, q, target):
+        T = self.m4(self.chain(q)[-1] + [self.c(0.0)] * 3 + [self.c(1.0)], self.m_home)
+        dp = sum(((T[4 * i + 3] - target[4 * i + 3]) * (T[4 * i + 3] - target[4 * i + 3]) for i in range(1, 3)),
+                 (T[3] - target[3]) * (T[3] - target[3]))
+        fro = self.c(0.0)
+        for i in range(3):
+            for j in range(3):
+                re = sum((T[4 * i + kk] * target[4 * j + kk] for kk in range(1, 3)), T[4 * i] * target[4 * j])
+                re = re - 1.0 if i == j else re
+                fro = fro + re * re
+        return dp.sqrt() + (fro * 0.5).sqrt()
+
+
+@algorithm(inputs=(("target", lambda o: 16), ("q7", lambda o: 1)), outputs=("q", "err"))
+def analytic_ik_candidates(robot, target, q7, geom=()):
+    """GRiM ``analytic_ik``'s eight branches for one redundancy value ``q7``: ``q`` (8 x 7,
+    branch ``elbow | sign << 1 | pair << 2``) and each one's pose error (position norm plus the
+    Frobenius rotation error / sqrt 2), against ``target`` (4 x 4 row-major). ``geom`` is the
+    95-scalar ArmGeom, folded in. Non-finite candidates and limits are the caller's to reject."""
+    arm = _Arm(robot.t, geom)
+    G = arm.m4(list(target), arm.m_home_inv)
+    qs = arm.candidates(G, q7[0])
+    return [x for q in qs for x in q], [arm.pose_error(q, target) for q in qs]
+
+
+@algorithm(inputs=(("q", lambda o: 7),), outputs=("chain",))
+def analytic_ik_chain(robot, q, geom=()):
+    """The cumulative screw products (8 x rows 0-2 of a 4 x 4, depth 0 = identity) that place
+    ``analytic_ik``'s home-frame collision spheres at ``q``."""
+    arm = _Arm(robot.t, geom)
+    return [x for T in arm.chain(q) for x in T]
