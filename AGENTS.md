@@ -10,7 +10,9 @@ GRiM uses it for `traced=True` kinematics and for `grim.motion.dynamics`.
    `rnea_derivatives`, `frame_poses`, `frame_jacobian`, `sphere_collision` (fused FK +
    environment check) and `ik_lm_step` (one projected Levenberg-Marquardt IK step) are plain
    Python. They operate on
-   traced spatial types: `Scalar`, `Vec3`, `Motion`, `Force`, `Inertia`, `SE3`. The robot comes
+   traced spatial types: `Scalar`, `Vec3`, `Motion`, `Force`, `Inertia`, `SE3`. Inertias use
+   Featherstone's compact forms (`RigidInertia`, 10 numbers; `ArticulatedInertia`, 21), never a
+   dense 6x6; see `CITATIONS.md`. The robot comes
    from `robot.py`, which uses GRiD's `URDFParser`, so joint order and constants match GRiD.
    Running an algorithm records it. Loops over joints run during tracing, so they leave no loops
    in the output.
@@ -137,6 +139,12 @@ workload needs robot math, write a new algorithm for it. Do not wrap an existing
 
 - **The trace is only as good as the Python.** Tracing removes overhead. It does not find a
   better algorithm or a better schedule. Port GRiD's formulation when crocket loses.
+- **New spatial ops follow Featherstone's representation** (RBDA §2.13; `CITATIONS.md`). Spatial
+  vectors are `[angular; linear]` `Motion` / `Force`. Transforms are `SE3` as `E` + `r`, never a
+  dense 6x6 Plücker matrix. Inertias are `RigidInertia` (`m, h, I_O`) or `ArticulatedInertia`
+  (`I, H, M` blocks), never a dense 6x6. Give each new op its scalar expansion in the book's
+  efficient compact form for every type it accepts, including the result type when types mix.
+  Test it against the dense product in `tests/test_oracle.py`.
 - **Validate every build.** `tests/test_oracle.py` checks the interpreter against RBDReference
   and Pinocchio on CPU. `tests/test_cuda.py` checks every tier against the interpreter,
   bit-identity under `-fmad=false`, and the -O0/-O3 guard.
