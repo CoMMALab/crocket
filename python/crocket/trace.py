@@ -176,6 +176,16 @@ class Scalar(Value):
     def minimum(self, o):
         return self._op("min", self, self._lift(o))
 
+    def exp(self):
+        return self._op("exp", self)
+
+    def log(self):
+        return self._op("log", self)
+
+    def lt(self, o):
+        """1 where ``self < o``, else 0 (branch-free selection, e.g. a hard min's argmin)."""
+        return self._op("lt", self, self._lift(o))
+
 
 class Vec3(Value):
     def cross(self, o):

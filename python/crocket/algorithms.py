@@ -13,7 +13,7 @@ import math
 
 import numpy as np
 
-from .trace import Motion, SE3, Scalar, algorithm
+from .trace import Force, Motion, SE3, Scalar, algorithm
 
 
 def _poses(robot, q, rot=(), rot_joint=-1):
@@ -756,3 +756,229 @@ def analytic_ik_chain(robot, q, geom=()):
     ``analytic_ik``'s home-frame collision spheres at ``q``."""
     arm = _Arm(robot.t, geom)
     return [x for T in arm.chain(q) for x in T]
+
+
+# ---- trajectory optimization: one waypoint's collision cost and its analytic gradient ----------
+
+_WORLD = (("spheres", 4), ("capsules", 7), ("boxes", 15), ("halfspaces", 6))
+_GROUPS = 5  # SCO's smooth-min groups: self, spheres, capsules, boxes, halfspaces
+
+
+_WORLD_INPUTS = tuple((name, lambda o, name=name, k=k: k * o.get(f"n_{name}", 0)) for name, k in _WORLD)
+
+
+def _sum_tree(xs, zero):
+    while len(xs) > 1:
+        xs = [a + b for a, b in zip(xs[::2], xs[1::2])] + ([xs[-1]] if len(xs) % 2 else [])
+    return xs[0] if xs else zero
+
+
+def _argmin_tree(ds):
+    """Hard min of ``ds`` and each candidate's selection weight (1 for the first minimum, else
+    0), branch-free and balanced: a node keeps its right half where it is strictly smaller."""
+    if len(ds) == 1:
+        return ds[0], [1.0]
+    h = len(ds) // 2
+    (ml, wl), (mr, wr) = _argmin_tree(ds[:h]), _argmin_tree(ds[h:])
+    take = mr.lt(ml)
+    return ml + take * (mr - ml), [w * (1.0 - take) for w in wl] + [w * take for w in wr]
+
+
+def _sub(a, b):
+    return [x - y for x, y in zip(a, b)]
+
+
+def _dot3(a, b):
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _norm(v):
+    return _dot3(v, v).sqrt()
+
+
+def _unit(v, n):
+    return [x / n for x in v]
+
+
+def _obstacle(kind, c, r, o):
+    """Signed distance of sphere (``c``, ``r``) to obstacle ``o`` and its gradient in ``c``
+    (GRiM kernels/collision.cuh's distances, the gradient taken analytically)."""
+    if kind == "spheres":
+        v = _sub(c, o[:3])
+        n = _norm(v)
+        return n - (o[3] + r), _unit(v, n)
+    if kind == "capsules":
+        a = o[:3]
+        ax = _sub(o[3:6], a)
+        len2 = _dot3(ax, ax)
+        ok = Scalar.const(c[0].t, 1e-12).lt(len2)  # degenerate capsule: its first end point
+        t = (_dot3(_sub(c, a), ax) / (len2 + (1.0 - ok))).maximum(0.0).minimum(1.0) * ok
+        v = _sub(c, [a[i] + t * ax[i] for i in range(3)])
+        n = _norm(v)
+        return n - (o[6] + r), _unit(v, n)  # the closest point's motion is second order
+    if kind == "boxes":
+        v = _sub(c, o[:3])
+        axes = [o[3 + 3 * k:6 + 3 * k] for k in range(3)]
+        proj = [_dot3(v, a) for a in axes]
+        sgn = [2.0 * p.lt(0.0) * -1.0 + 1.0 for p in proj]  # sign(proj), +1 at 0
+        qk = [p.abs() - o[12 + k] for k, p in enumerate(proj)]
+        m = [x.maximum(0.0) for x in qk]
+        m2 = m[0] * m[0] + m[1] * m[1] + m[2] * m[2]
+        out = Scalar.const(c[0].t, 0.0).lt(m2)
+        nm = m2.sqrt()
+        inner, w = _argmin_tree([-x for x in qk])  # inside: the face of the largest q
+        d = nm + (-inner).minimum(0.0) - r
+        coef = [out * mk / (nm + (1.0 - out)) + (1.0 - out) * wk for mk, wk in zip(m, w)]
+        g = [sum((coef[k] * sgn[k] * axes[k][i] for k in range(1, 3)), coef[0] * sgn[0] * axes[0][i])
+             for i in range(3)]
+        return d, g
+    n = o[:3]  # halfspace: normal, then a point on the plane
+    return _dot3(_sub(c, o[3:6]), n) - r, list(n)
+
+
+def _collision_terms(robot, q, world, rot, rot_joint, rows, pairs):
+    """Every distance of GRiM's trajopt kernels, in their order (self pairs, then rows x
+    obstacles by kind): ``(group, d, [(sphere, dd/dc)])``, ``d`` the hard min over the spheres
+    involved. Also the world sphere centres and their frames' joints."""
+    X0 = _poses(robot, q, rot, rot_joint)
+    spheres, row_idx = [], []
+    for frame, sph in rows:
+        row_idx.append(list(range(len(spheres), len(spheres) + len(sph))))
+        spheres += [(frame, s) for s in sph]
+    cw = _sphere_centres(robot, X0, [(f, s[:3]) for f, s in spheres])
+    c = [cw[3 * i:3 * i + 3] for i in range(len(spheres))]
+    r = [float(s[3]) for _, s in spheres]
+    terms = []
+    for i, j in pairs:
+        cand = []
+        for a in row_idx[i]:
+            for b in row_idx[j]:
+                v = _sub(c[a], c[b])
+                n = _norm(v)
+                u = _unit(v, n)
+                cand.append((n - (r[a] + r[b]), [(a, u), (b, [-x for x in u])]))
+        if cand:
+            d, w = _argmin_tree([x[0] for x in cand])
+            terms.append((0, d, [(s, [wi * x for x in g]) for (_, gs), wi in zip(cand, w) for s, g in gs]))
+    for row in row_idx:
+        if not row:
+            continue
+        for g, (name, k) in enumerate(_WORLD, start=1):
+            for ob in range(len(world[name]) // k):
+                o = world[name][k * ob:k * ob + k]
+                cand = [_obstacle(name, c[s], r[s], o) for s in row]
+                d, w = _argmin_tree([x[0] for x in cand])
+                terms.append((g, d, [(s, [wi * x for x in gr]) for s, (_, gr), wi in zip(row, cand, w)]))
+    joint_of = [robot.frame(f).parent for f, _ in spheres]
+    return X0, c, joint_of, terms
+
+
+def _backprop(robot, X0, c, joint_of, gs):
+    """``dcost/dq`` from per-sphere world gradients ``gs`` (sphere -> dcost/dc), GRiD style: each
+    sphere's gradient becomes a world wrench ``[c x g; g]`` on its joint, wrenches accumulate up
+    the tree as RNEA's forces do, and ``dcost/dq_j = S_j^world . F_j``."""
+    t = robot.t
+    zero = Scalar.const(t, 0.0)
+    F = {}
+    for s, g in gs.items():
+        j = joint_of[s]
+        if j < 0:  # on the base: no joint moves it
+            continue
+        p = c[s]
+        e = [p[1] * g[2] - p[2] * g[1], p[2] * g[0] - p[0] * g[2], p[0] * g[1] - p[1] * g[0]] + list(g)
+        w = t.record("force_pack", Force, tuple(e),
+                     lambda *x: np.array([int(np.asarray(v).reshape(-1)[0]) for v in x], np.int64))
+        F[j] = w if j not in F else F[j] + w
+    grad = [zero] * robot.n_q
+    for j in reversed(robot.joints):
+        if j not in F:
+            continue
+        p = robot.parent(j)
+        if p >= 0:
+            F[p] = F[j] if p not in F else F[p] + F[j]
+        tw = X0[j].inv() @ robot.S(j)  # world twist at the world origin
+        grad[robot.col(j)] = grad[robot.col(j)] + tw.dot(F[j]) * robot.scale(j)
+    return grad
+
+
+def _gather(terms, dcost):
+    """Per-sphere ``dcost/dc``: each term's ``dcost/dd`` times its ``dd/dc``."""
+    gs = {}
+    for (_, _, parts), k in zip(terms, dcost):
+        for s, g in parts:
+            v = [k * x for x in g]
+            gs[s] = v if s not in gs else [a + b for a, b in zip(gs[s], v)]
+    return gs
+
+
+@algorithm(inputs=("q",) + _WORLD_INPUTS + (("params", lambda o: 2), _ROT), outputs=("cost", "grad"))
+def traj_collision(robot, q, spheres, capsules, boxes, halfspaces, params, rot, rows=(), pairs=(),
+                   mode="hinge", gradient=True, rot_joint=-1, n_spheres=0, n_capsules=0, n_boxes=0,
+                   n_halfspaces=0):
+    """One waypoint's collision cost of GRiM's trajectory optimizers and its gradient in ``q``.
+
+    ``rows`` is ``((frame, ((x, y, z, radius), ...)), ...)``: GRiM's TrajCollision rows, each
+    sphere fixed in its frame; ``pairs`` the self-collision row pairs; ``n_spheres``,
+    ``n_capsules``, ``n_boxes``, ``n_halfspaces`` the world's obstacle counts, their parameters
+    the runtime inputs of those names in GRiM's layouts. ``params`` is ``[margin, tau]``.
+    A distance is the hard min over the sphere pairs of a self pair, or over a row's spheres
+    against one obstacle. ``mode``:
+
+    * ``"hinge"`` (CHOMP, STOMP): ``cost = sum max(0, margin - d)^2``;
+    * ``"sdf"`` (SCO's true cost): ``cost = -sum min(colldist_from_sdf(d, margin), 0)``.
+
+    ``grad`` is ``dcost/dq`` by :func:`_backprop` (empty with ``gradient=False``)."""
+    world = {"spheres": spheres, "capsules": capsules, "boxes": boxes, "halfspaces": halfspaces}
+    X0, c, joint_of, terms = _collision_terms(robot, q, world, rot, rot_joint, rows, pairs)
+    margin = params[0]
+    zero = Scalar.const(robot.t, 0.0)
+    if mode == "hinge":
+        v = [(margin - d).maximum(0.0) for _, d, _ in terms]
+        cost = _sum_tree([x * x for x in v], zero)
+        dcost = [-2.0 * x for x in v]
+    elif mode == "sdf":
+        # colldist(d) = d - margin/2 below 0, -(d - margin)^2 / (2 (margin + 1e-6)) up to margin;
+        # the cost is -min(colldist, 0) = -colldist, 0 from margin on.
+        inv = 0.5 / (margin + 1e-6)
+        cs, dcost = [], []
+        for _, d, _ in terms:
+            neg = d.lt(0.0)
+            near = (1.0 - neg) * d.lt(margin)
+            u = d - margin
+            cs.append(neg * (0.5 * margin - d) + near * (inv * u * u))
+            dcost.append(-neg + near * (2.0 * inv * u))
+        cost = _sum_tree(cs, zero)
+    else:
+        raise ValueError(f"mode {mode!r}: 'hinge' or 'sdf' (smooth-min groups: traj_smooth_min)")
+    grad = _backprop(robot, X0, c, joint_of, _gather(terms, dcost)) if gradient else []
+    return [cost], grad
+
+
+@algorithm(inputs=("q",) + _WORLD_INPUTS + (("params", lambda o: 2), _ROT), outputs=("dist", "jac"))
+def traj_smooth_min(robot, q, spheres, capsules, boxes, halfspaces, params, rot, rows=(), pairs=(),
+                    gradient=True, rot_joint=-1, n_spheres=0, n_capsules=0, n_boxes=0, n_halfspaces=0):
+    """SCO's linearization at one waypoint: the smooth-min distance of each group (self, world
+    spheres, capsules, boxes, halfspaces; ``1e10`` for an empty group),
+    ``-tau log sum exp(-d / tau)``, and its Jacobian in ``q`` (row-major ``5 x n_q``, by one
+    :func:`_backprop` per group). Options as :func:`traj_collision`; ``params[1]`` is ``tau``."""
+    world = {"spheres": spheres, "capsules": capsules, "boxes": boxes, "halfspaces": halfspaces}
+    X0, c, joint_of, terms = _collision_terms(robot, q, world, rot, rot_joint, rows, pairs)
+    tau = params[1]
+    zero = Scalar.const(robot.t, 0.0)
+    dist, jac = [], []
+    for g in range(_GROUPS):
+        mine = [x for x in terms if x[0] == g]
+        if not mine:
+            dist.append(Scalar.const(robot.t, 1e10))
+            jac += [zero] * robot.n_q
+            continue
+        v = [-d / tau for _, d, _ in mine]
+        mx = v[0]
+        for x in v[1:]:
+            mx = mx.maximum(x)
+        e = [(x - mx).exp() for x in v]
+        se = _sum_tree(e, zero)
+        dist.append(-tau * (se.log() + mx))
+        if gradient:
+            jac += _backprop(robot, X0, c, joint_of, _gather(mine, [x / se for x in e]))
+    return dist, jac

@@ -115,3 +115,14 @@ def test_tune_picks_a_validated_layout_and_caches_it():
     assert best.ms > 0 and best.tier in cuda.TIERS
     assert tune.tune(p, 256) == best  # second call is the cached config
     harness.validate(harness.build([(p, best.variant)]))
+
+
+@pytest.mark.parametrize("robot_name", ["grid_iiwa14", "fr3"])
+def test_register_guard_removes_spills(robot_name):
+    # The traced collision gradient spills at the default thread budget; fit must chunk it until
+    # ptxas reports no spill, and the chunked build must still match the interpreter.
+    p = _trace(robot_name, "traj_collision")
+    assert harness.build([(p, cuda.Variant("thread"))]).resources[0].spill_stores > 0
+    built, budget = harness.fit(p, cuda.Variant("thread"))
+    assert budget < cuda.BUDGET and built.resources[0].spill_stores == 0
+    harness.validate(built)

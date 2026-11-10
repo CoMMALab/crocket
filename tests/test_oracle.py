@@ -346,3 +346,115 @@ def test_compact_inertia_ops_match_dense():
     np.testing.assert_allclose(got[31:37], R6 @ vv, atol=1e-12)
     np.testing.assert_allclose(got[37:43], A6 @ vv, atol=1e-12)
     np.testing.assert_allclose(to6(got[43:]), R6 + A6, atol=1e-12)
+
+
+def _traj_world(r, prog, batch):
+    from crocket import harness
+    x = harness.sample_inputs(prog, batch, seed=3)
+    x["q"] = inputs(r, batch=batch, seed=3)["q"]
+    return x
+
+
+def _traj_reference(r, x, b, rows, pairs):
+    """Every distance of GRiM's trajopt kernels in float64 NumPy over Pinocchio's frame poses:
+    ``(group, d)`` in the kernels' order."""
+    model, cols, _ = _pinocchio(r)
+    data = model.createData()
+    q = np.zeros(model.nq)
+    q[cols] = x["q"][b]
+    pin.framesForwardKinematics(model, data, q)
+    cs = []
+    for name, sph in rows:
+        fid = (model.getFrameId(name, pin.BODY) if name in r.root_links else
+               model.getFrameId(name, pin.JOINT if any(j.name == name for j in r.joints) else pin.FIXED_JOINT))
+        cs.append([(data.oMf[fid].act(np.asarray(s[:3], float)), s[3]) for s in sph])
+    out = []
+    for i, j in pairs:
+        ds = [np.linalg.norm(a - b) - ra - rb for a, ra in cs[i] for b, rb in cs[j]]
+        if ds:
+            out.append((0, min(ds)))
+
+    def dist(kind, c, rr, o):
+        if kind == "spheres":
+            return np.linalg.norm(c - o[:3]) - rr - o[3]
+        if kind == "capsules":
+            v = o[3:6] - o[:3]
+            t = np.clip((c - o[:3]) @ v / (v @ v), 0, 1)
+            return np.linalg.norm(c - o[:3] - t * v) - rr - o[6]
+        if kind == "boxes":
+            qk = np.abs(o[3:12].reshape(3, 3) @ (c - o[:3])) - o[12:]
+            return np.linalg.norm(np.maximum(qk, 0)) + min(qk.max(), 0) - rr
+        return (c - o[3:6]) @ o[:3] - rr
+
+    for row in cs:
+        if not row:
+            continue
+        for g, (kind, k) in enumerate((("spheres", 4), ("capsules", 7), ("boxes", 15), ("halfspaces", 6)), 1):
+            obs = x[kind][b].reshape(-1, k)
+            for o in obs:
+                out.append((g, min(dist(kind, c, rr, o) for c, rr in row)))
+    return out
+
+
+@pytest.mark.parametrize("robot_name", ["panda", "ur5", "fetch"])
+@pytest.mark.parametrize("mode", ["hinge", "sdf"])
+def test_traj_collision_vs_pinocchio(robot_name, mode):
+    """GRiM trajopt's collision costs against Pinocchio's frame poses and NumPy distances."""
+    from robots import traj_set
+    r = robot(robot_name)
+    opts = traj_set(r)
+    prog = crocket.trace(r, "traj_collision", mode=mode, **opts)
+    x = _traj_world(r, prog, 8)
+    got = prog.evaluate(**x)["cost"][:, 0]
+    margin = x["params"][0, 0]
+    for b in range(8):
+        ds = np.array([d for _, d in _traj_reference(r, x, b, opts["rows"], opts["pairs"])])
+        if mode == "hinge":
+            want = np.sum(np.maximum(0, margin - ds) ** 2)
+        else:
+            dm = np.minimum(ds, margin)
+            cd = np.where(dm < 0, dm - 0.5 * margin, -0.5 / (margin + 1e-6) * (dm - margin) ** 2)
+            want = -np.sum(np.minimum(cd, 0))
+        _close(got[b], want)
+
+
+@pytest.mark.parametrize("robot_name", ["panda", "fetch"])
+def test_traj_smooth_min_vs_pinocchio(robot_name):
+    from robots import traj_set
+    r = robot(robot_name)
+    opts = traj_set(r)
+    prog = crocket.trace(r, "traj_smooth_min", **opts)
+    x = _traj_world(r, prog, 8)
+    got = prog.evaluate(**x)["dist"]
+    tau = x["params"][0, 1]
+    for b in range(8):
+        terms = _traj_reference(r, x, b, opts["rows"], opts["pairs"])
+        for g in range(5):
+            ds = np.array([d for gg, d in terms if gg == g])
+            want = 1e10 if ds.size == 0 else -tau * np.log(np.sum(np.exp(-ds / tau)))
+            _close(got[b, g], want)
+
+
+@pytest.mark.parametrize("robot_name", ["panda", "fetch", "grid_go2"])
+@pytest.mark.parametrize("name,mode", [("traj_collision", "hinge"), ("traj_collision", "sdf"),
+                                       ("traj_smooth_min", None)])
+def test_traj_gradients_match_finite_differences(robot_name, name, mode):
+    """The world-wrench backward pass against central differences of the traced value."""
+    from robots import traj_set
+    r = robot(robot_name)
+    opts = traj_set(r) | ({"mode": mode} if mode else {})
+    prog = crocket.trace(r, name, **opts)
+    x = _traj_world(r, prog, 6)
+    val, grad = ("cost", "grad") if name == "traj_collision" else ("dist", "jac")
+    got = prog.evaluate(**x)[grad].reshape(6, -1, r.n_q)
+    h = 1e-6
+    fd = np.zeros_like(got)
+    for c in range(r.n_q):
+        hi, lo = dict(x), dict(x)
+        hi["q"], lo["q"] = x["q"].copy(), x["q"].copy()
+        hi["q"][:, c] += h
+        lo["q"][:, c] -= h
+        fd[:, :, c] = (prog.evaluate(**hi)[val] - prog.evaluate(**lo)[val]) / (2 * h)
+    live = np.abs(prog.evaluate(**x)[val]) < 1e9  # the 1e10 of an empty smooth-min group
+    np.testing.assert_allclose(got[live], fd[live], atol=1e-5, rtol=1e-4)
+    assert np.abs(got).max() > 0  # some term is active

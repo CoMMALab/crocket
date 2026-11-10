@@ -10,8 +10,9 @@ from __future__ import annotations
 import ctypes
 import hashlib
 import os
+import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -121,10 +122,42 @@ extern "C" float run_{i}(const {T}* X, {T}* Y, int batch, int block, int reps)
 
 
 @dataclass
+class Resources:
+    """ptxas's report for one kernel, its ``__noinline__`` stages included."""
+
+    registers: int  # the most any one function of the kernel uses
+    stack: int  # bytes of stack frame (local scratch arrays included), summed over the call tree
+    spill_stores: int  # bytes: registers that did not fit
+    spill_loads: int
+
+
+def _resources(log: str) -> dict[str, Resources]:
+    """Per-function ptxas -v figures, keyed by mangled name."""
+    out, name = {}, None
+    for line in log.splitlines():
+        m = re.search(r"Compiling entry function '(\w+)'|Function properties for (\w+)", line)
+        if m:
+            name = m.group(1) or m.group(2)
+            out.setdefault(name, [0, 0, 0, 0])
+            continue
+        if name is None:
+            continue
+        m = re.search(r"(\d+) bytes stack frame, (\d+) bytes spill stores, (\d+) bytes spill loads", line)
+        if m:
+            out[name][1:] = [int(m.group(k)) for k in (1, 2, 3)]
+        m = re.search(r"Used (\d+) registers", line)
+        if m:
+            out[name][0] = int(m.group(1))
+    return out
+
+
+@dataclass
 class Built:
     lib: ctypes.CDLL
     cases: list[tuple[Program, cuda.Variant]]
     dtype: type
+    log: str = ""  # ptxas -v
+    resources: list[Resources] = field(default_factory=list)  # per case
 
     def run(self, i: int, inputs: dict[str, np.ndarray], block: int = 128, reps: int = 0):
         """Run case ``i`` on (B, len) inputs; returns (name -> (B, len) outputs, ms per launch)."""
@@ -160,9 +193,10 @@ def build(cases: list[tuple[Program, cuda.Variant]], dtype=np.float32, flags: tu
     src = cuda.header(robot, sections, name="robot")
     src += f"namespace r = crocket::robots::robot;\nconstexpr size_t SMEM_LIMIT = {SMEM_LIMIT};\n" + "".join(
         _kernel(i, p, v, "robot", T) for i, (p, v) in enumerate(cases))
-    flags = (*flags, "-std=c++17", ARCH, "--shared", "--compiler-options", "-fPIC")
+    flags = (*flags, "-std=c++17", ARCH, "--shared", "--compiler-options", "-fPIC", "-Xptxas", "-v")
     key = hashlib.sha1((src + " ".join(flags)).encode()).hexdigest()
     out = cache_dir() / "build" / f"{key}.so"
+    log = out.with_suffix(".ptxas")
     if not out.exists():
         out.parent.mkdir(parents=True, exist_ok=True)
         cu = out.with_suffix(".cu")
@@ -171,8 +205,39 @@ def build(cases: list[tuple[Program, cuda.Variant]], dtype=np.float32, flags: tu
         res = subprocess.run(["nvcc", *flags, "-o", str(tmp), str(cu)], capture_output=True, text=True)
         if res.returncode:
             raise RuntimeError(f"nvcc failed on {cu}:\n{res.stderr[-4000:]}")
+        log.write_text(res.stdout + res.stderr)
         tmp.replace(out)
-    return Built(ctypes.CDLL(str(out)), list(cases), dtype)
+    text = log.read_text() if log.exists() else ""
+    return Built(ctypes.CDLL(str(out)), list(cases), dtype, text, _per_case(text, len(cases)))
+
+
+def _per_case(log: str, n: int) -> list[Resources]:
+    """Each case's kernel ``k<i>``; a one-case build also counts every function it calls
+    (crocket's ``__noinline__`` stages), which is how :func:`fit` reads it."""
+    funcs = _resources(log)
+    out = []
+    for i in range(n):
+        vals = list(funcs.values()) if n == 1 else [v for k, v in funcs.items() if re.fullmatch(rf"_Z\d+k{i}P.*", k)]
+        vals = vals or [[0, 0, 0, 0]]
+        out.append(Resources(max(v[0] for v in vals), sum(v[1] for v in vals),
+                             sum(v[2] for v in vals), sum(v[3] for v in vals)))
+    return out
+
+
+def fit(program: Program, variant: cuda.Variant, dtype=np.float32, budget: int = cuda.BUDGET,
+        floor: int = 64) -> tuple[Built, int]:
+    """The register guard: build ``variant`` and, while ptxas spills, re-emit it with half the
+    statement budget, so it splits into more ``__noinline__`` stages whose live values fit in
+    registers (the generated code is never left to the unroller or the allocator to shrink).
+    Returns the build and the budget that fit; raises below ``floor``."""
+    while True:
+        built = build([(program, variant)], dtype, budget=budget)
+        if built.resources[0].spill_stores == 0:
+            return built, budget
+        if budget // 2 < floor:
+            raise RuntimeError(f"{program.robot.name} {program.name} {variant}: still spills "
+                               f"{built.resources[0].spill_stores} bytes at budget {budget}")
+        budget //= 2
 
 
 # Float relative bounds per algorithm: GRiM's accepted bars for traced float dynamics vs float64
@@ -214,6 +279,24 @@ def sample_inputs(p: Program, batch: int, seed: int = 0) -> dict[str, np.ndarray
             boxes = np.concatenate([rng.uniform(-0.8, 0.8, (m, 3)), axes.reshape(m, 9),
                                     rng.uniform(0.02, 0.3, (m, 3))], 1).reshape(-1)
             x["boxes"] = np.tile(boxes, (batch, 1))
+        elif n == "spheres":  # [centre, radius]
+            m = length // 4
+            x[n] = np.tile(np.concatenate([rng.uniform(-0.8, 0.8, (m, 3)), rng.uniform(0.05, 0.3, (m, 1))],
+                                          1).reshape(-1), (batch, 1))
+        elif n == "capsules":  # [end a, end b, radius]
+            m = length // 7
+            a = rng.uniform(-0.8, 0.8, (m, 3))
+            x[n] = np.tile(np.concatenate([a, a + rng.uniform(-0.4, 0.4, (m, 3)), rng.uniform(0.03, 0.15, (m, 1))],
+                                          1).reshape(-1), (batch, 1))
+        elif n == "halfspaces":  # [unit normal, point on the plane]
+            m = length // 6
+            nrm = rng.normal(size=(m, 3))
+            x[n] = np.tile(np.concatenate([nrm / np.linalg.norm(nrm, axis=1, keepdims=True),
+                                           rng.uniform(-0.6, 0.6, (m, 3))], 1).reshape(-1), (batch, 1))
+        elif n == "rot":  # a floating base's chart reference (wxyz), when the trace takes one
+            x[n] = np.tile([1.0, 0.0, 0.0, 0.0][:length], (batch, 1))
+        elif n == "params":  # [margin, tau]
+            x[n] = np.tile([0.15, 0.05], (batch, 1))
     return {n: x[n] for n, _ in p.inputs}
 
 

@@ -40,6 +40,8 @@ def expr(g, s: int, ref) -> str:
         return f"{args[0]} {_INFIX[op]} {args[1]}"
     if op == "neg":
         return f"-{args[0]}"
+    if op == "lt":
+        return f"({args[0]} < {args[1]} ? T(1) : T(0))"
     return f"{_CALL.get(op, op)}({', '.join(args)})"
 
 
@@ -83,7 +85,7 @@ class _Emitter:
         live = g.live(outputs)
         body = [s for s in range(len(g.op)) if live[s] and g.op[s] not in ("const", "in")]
         if len(body) > self.budget:
-            return self.cooperative(sched_mod.build(self.p, 1, threshold=1 << 30), "thread")
+            return self.thread_chunked(body)
         ref = lambda a: self.ref_base(a) or f"t{a}"  # noqa: E731
         lines = [f"        const T t{s} = {expr(g, s, ref)};" for s in body]
         for k, s in enumerate(outputs):
@@ -91,6 +93,47 @@ class _Emitter:
             lines.append(f"        {name}[{i} * ys] = {ref(int(s))};")
         return (f"    template <class T>\n    CROCKET_HD void {self.p.name}_thread({self.params}, int ys = 1)\n"
                 "    {\n" + "\n".join(lines) + "\n    }\n")
+
+    def thread_chunked(self, body: list[int]) -> str:
+        """The thread tier over budget: the statements in trace order, cut every ``budget`` into
+        ``__noinline__`` chunks. A value read by a later chunk (or by none, as an output) passes
+        through the scratch ``s``; everything else stays a register of its own chunk, so each
+        chunk's live set is bounded by the budget, not by the size of a tree level. This is the
+        register guard's lever (``harness.fit``): a smaller budget gives smaller live sets."""
+        g, name = self.g, self.p.name
+        chunks = [body[i:i + self.budget] for i in range(0, len(body), self.budget)]
+        chunk_of = {s: k for k, ch in enumerate(chunks) for s in ch}
+        slots: dict[int, int] = {}
+        for k, ch in enumerate(chunks):
+            for s in ch:
+                for a in g.args[s]:
+                    if a in chunk_of and chunk_of[a] != k and a not in slots:
+                        slots[a] = len(slots)
+        out_index: dict[int, list[int]] = {}
+        for k, s in enumerate(self.p.flat_outputs):
+            out_index.setdefault(int(s), []).append(k)
+        fn, sig = f"{name}_thread", f"{self.params}, T* __restrict__ s, int ys"
+        funcs, calls = [], []
+        for k, ch in enumerate(chunks):
+            mine = set(ch)
+            ref = lambda a, mine=mine: (self.ref_base(a)  # noqa: E731
+                                        or (f"t{a}" if a in mine else f"s[{slots[a]}]"))
+            lines = [f"const T t{s} = {expr(g, s, ref)};" for s in ch]
+            for s in ch:
+                if s in slots:
+                    lines.append(f"s[{slots[s]}] = t{s};")
+                lines += self.store_outputs(s, f"t{s}", out_index)
+            text = "\n        ".join(lines)
+            funcs.append(f"    template <class T>\n    __device__ __noinline__ void {fn}_c{k}({sig})\n"
+                         f"    {{\n        {text}\n    }}\n")
+            calls.append(f"        {fn}_c{k}<T>({self.args}, s, ys);\n")
+        for k, s in enumerate(self.p.flat_outputs):  # outputs that are inputs or constants
+            if int(s) not in chunk_of:
+                nm, i = self.where[k]
+                calls.append(f"        {nm}[{i} * ys] = {self.ref_base(int(s))};\n")
+        head = (f"    template <class T>\n    CROCKET_HD void {fn}({self.params}, int ys = 1)\n    {{\n"
+                f"        T s[{max(len(slots), 1)}];\n")
+        return "".join(funcs) + head + "".join(calls) + "    }\n"
 
     # ---- cooperative tiers ----------------------------------------------------------------
 

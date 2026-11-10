@@ -32,8 +32,11 @@ _FOLD = {
     "abs": abs,
     "max": np.maximum,
     "min": np.minimum,
+    "exp": math.exp,
+    "log": math.log,
+    "lt": lambda a, b: np.less(a, b) * 1.0,  # 1 where a < b, else 0: branch-free selection
 }
-_NUMPY = {"sin": np.sin, "cos": np.cos, "sqrt": np.sqrt}
+_NUMPY = {"sin": np.sin, "cos": np.cos, "sqrt": np.sqrt, "exp": np.exp, "log": np.log}
 
 
 @dataclass

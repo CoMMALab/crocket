@@ -49,7 +49,22 @@ def options(r: crocket.Robot, name: str) -> dict:
         return {"frame": max(r.joints, key=lambda j: j.depth).name}
     if name == "sphere_collision":
         return {"spheres": sphere_set(r), "n_boxes": 3}
+    if name in ("traj_collision", "traj_smooth_min"):
+        return traj_set(r)
     return {}
+
+
+def traj_set(r: crocket.Robot) -> dict:
+    """GRiM TrajCollision-shaped rows (two spheres per joint frame, one on the base, the last
+    joint's row left empty), self pairs between rows two or more apart, two obstacles of each kind."""
+    base = next(iter(sorted(r.root_links)))
+    rows = [(j.name, ((0.03, 0.02 * (k % 3), 0.06, 0.05), (-0.04, 0.05, -0.02, 0.04)))
+            for k, j in enumerate(r.joints)]
+    rows[-1] = (rows[-1][0], ())
+    rows.append((base, ((0.02, -0.01, 0.05, 0.08),)))
+    pairs = tuple((i, j) for i in range(len(rows)) for j in range(i + 2, len(rows)))
+    return {"rows": tuple(rows), "pairs": pairs, "n_spheres": 2, "n_capsules": 2, "n_boxes": 2,
+            "n_halfspaces": 2}
 
 
 def sphere_set(r: crocket.Robot) -> tuple:
