@@ -219,31 +219,92 @@ class Force(Value):
     def dot(self, m: Motion) -> Scalar:
         return m.dot(self)
 
-    def outer(self, o: "Force") -> "Inertia":
-        """``self o^T`` (a symmetric rank-1 update when ``o`` is ``self`` scaled)."""
+    def outer(self, o: "Force") -> "ArticulatedInertia":
+        """``self o^T`` for ``o`` parallel to ``self`` (ABA's rank-1 update), so the result is
+        symmetric and only its upper triangle is formed."""
         g = self.t.g
-        return self.t.record("outer", Inertia, (self, o), lambda a, b: np.array(
-            [[g.s("mul", int(x), int(y)) for y in b] for x in a]))
+
+        def outer(a, b):
+            ab = [[g.s("mul", int(x), int(y)) for y in b] for x in a]
+            return np.array(_upper3([r[:3] for r in ab[:3]]) + [ab[i][3 + k] for i in range(3) for k in range(3)]
+                            + _upper3([r[3:] for r in ab[3:]]))
+        return self.t.record("outer", ArticulatedInertia, (self, o), outer)
+
+
+def _sym3(u):
+    """The 3x3 symmetric matrix of its upper triangle ``[xx, xy, xz, yy, yz, zz]``."""
+    return np.array([[u[0], u[1], u[2]], [u[1], u[3], u[4]], [u[2], u[4], u[5]]], np.int64)
+
+
+def _upper3(M):
+    return [M[0][0], M[0][1], M[0][2], M[1][1], M[1][2], M[2][2]]
+
+
+def _skew(g, v):
+    return np.array([[0, g.s("neg", v[2]), v[1]], [v[2], 0, g.s("neg", v[0])],
+                     [g.s("neg", v[1]), v[0], 0]], np.int64)
+
+
+def _mm(g, A, B):
+    return np.array([[_dot(g, A[i], B[:, k]) for k in range(B.shape[1])] for i in range(len(A))], np.int64)
 
 
 class Inertia(Value):
+    """A spatial inertia in Featherstone's compact forms (RBDA §2.13): :class:`RigidInertia`
+    (rbi) or :class:`ArticulatedInertia` (abi). Mixing the two promotes to abi."""
+
+    def __add__(self, other):
+        if isinstance(other, Inertia) and type(other) is not type(self):
+            return self.abi() + other.abi()
+        return super().__add__(other)
+
+    def __sub__(self, other):
+        if isinstance(other, Inertia) and type(other) is not type(self):
+            return self.abi() - other.abi()
+        return super().__sub__(other)
+
+
+class RigidInertia(Inertia):
+    """``[m, h (3), I_O upper (6)]``: ``I = [[I_O, h x], [-h x, m 1]]``, ``h = m c``, ``I_O`` about
+    the frame origin. A sum of rigid inertias is one (CRBA's composites)."""
+
     @staticmethod
-    def const(t, v):
-        return t.const(Inertia, v)
+    def from_matrix(t, I6):
+        hx = I6[:3, 3:]
+        return t.const(RigidInertia, [I6[3, 3], hx[2, 1], hx[0, 2], hx[1, 0]] + _upper3(I6[:3, :3]))
+
+    def abi(self) -> "ArticulatedInertia":
+        g = self.t.g
+
+        def expand(e):
+            m, hx = int(e[0]), _skew(g, e[1:4])
+            return np.array(list(e[4:]) + list(hx.reshape(9)) + [m, 0, 0, m, 0, m])
+        return self.t.record("rbi_to_abi", ArticulatedInertia, (self,), expand)
 
     def __matmul__(self, m: Motion) -> Force:
-        return self.t.record("inertia_mul", Force, (self, m), lambda I, v: np.array(_matvec(self.t.g, I, v)))
+        g = self.t.g
+
+        def mul(e, v):  # [I_O w + h x v, m v - h x w]
+            mass, h, I = int(e[0]), e[1:4], _sym3(e[4:])
+            return np.array([g.s("add", x, y) for x, y in zip(_matvec(g, I, v[:3]), _cross(g, h, v[3:]))]
+                            + [g.s("sub", g.s("mul", mass, int(x)), y) for x, y in zip(v[3:], _cross(g, h, v[:3]))])
+        return self.t.record("inertia_mul", Force, (self, m), mul)
 
 
-def _x6(g, e):
-    """The dense 6x6 ``X`` of an SE3 expansion ``[E row-major (9), r (3)]``."""
-    E, r = e[:9].reshape(3, 3), e[9:]
-    rx = np.array([[0, g.s("neg", r[2]), r[1]], [r[2], 0, g.s("neg", r[0])],
-                   [g.s("neg", r[1]), r[0], 0]], np.int64)
-    X = np.zeros((6, 6), np.int64)
-    X[:3, :3] = X[3:, 3:] = E
-    X[3:, :3] = [[g.s("neg", _dot(g, E[i], rx[:, k])) for k in range(3)] for i in range(3)]
-    return X
+class ArticulatedInertia(Inertia):
+    """``[I upper (6), H (9, row-major), M upper (6)]``: the symmetric ``[[I, H], [H^T, M]]``."""
+
+    def abi(self) -> "ArticulatedInertia":
+        return self
+
+    def __matmul__(self, m: Motion) -> Force:
+        g = self.t.g
+
+        def mul(e, v):  # [I w + H v, H^T w + M v]
+            I, H, M = _sym3(e[:6]), e[6:15].reshape(3, 3), _sym3(e[15:])
+            return np.array([g.s("add", x, y) for x, y in zip(_matvec(g, I, v[:3]), _matvec(g, H, v[3:]))]
+                            + [g.s("add", x, y) for x, y in zip(_matvec(g, H.T, v[:3]), _matvec(g, M, v[3:]))])
+        return self.t.record("inertia_mul", Force, (self, m), mul)
 
 
 class SE3(Value):
@@ -317,16 +378,36 @@ class _Congruence:
             raise ValueError("X.T @ I @ X needs the same X on both sides")
         X, g = self.X, self.X.t.g
 
-        def congruence(e, I):
-            X6 = _x6(g, e)
-            IX = [[_dot(g, I[i], X6[:, k]) for k in range(6)] for i in range(6)]
-            IX = np.array(IX, np.int64)
-            out = np.zeros((6, 6), np.int64)
-            for i in range(6):
-                for k in range(i, 6):
-                    out[i, k] = out[k, i] = _dot(g, X6[:, i], IX[:, k])
-            return out
-        return X.t.record("inertia_transform_inv", Inertia, (X, self.I), congruence)
+        # X = diag(E, E) [[1, 0], [-r x, 1]]: rotate the blocks by E, then shift by r.
+        def rigid(e, I):
+            E, r = e[:9].reshape(3, 3), e[9:]
+            m, h = int(I[0]), I[1:4]
+            h1 = _matvec(g, E.T, h)
+            hp = [g.s("add", int(x), g.s("mul", m, int(y))) for x, y in zip(h1, r)]  # E^T h + m r
+            Ir = _mm(g, _mm(g, E.T, _sym3(I[4:])), E)
+
+            def xx(a, b, i, k):  # (a x)(b x) = b a^T - (a . b) 1
+                t = g.s("mul", int(b[i]), int(a[k]))
+                return g.s("sub", t, _dot(g, a, b)) if i == k else t
+            # I_O' = E^T I_O E - (r x)(E^T h x) - (h' x)(r x)
+            Ip = [g.s("sub", g.s("sub", int(Ir[i][k]), xx(r, h1, i, k)), xx(hp, r, i, k))
+                  for i in range(3) for k in range(i, 3)]
+            return np.array([m] + hp + Ip)
+
+        def articulated(e, I):
+            E, r = e[:9].reshape(3, 3), e[9:]
+            rot = lambda A: _mm(g, _mm(g, E.T, A), E)  # noqa: E731
+            Ib, H, M = _sym3(_upper3(rot(_sym3(I[:6])))), rot(I[6:15].reshape(3, 3)), _sym3(_upper3(rot(_sym3(I[15:]))))
+            rx = _skew(g, r)
+            Hn = [[g.s("add", int(H[i][k]), _dot(g, rx[i], M[:, k])) for k in range(3)] for i in range(3)]
+            # I' = I + r x H^T - H' r x, with H' = H + r x M
+            In = [[g.s("sub", g.s("add", int(Ib[i][k]), _dot(g, rx[i], H[k])), _dot(g, Hn[i], rx[:, k]))
+                   for k in range(3)] for i in range(3)]
+            return np.array(_upper3(In) + sum(Hn, []) + _upper3(M))
+
+        rigid_in = isinstance(self.I, RigidInertia)
+        return X.t.record("inertia_transform_inv", RigidInertia if rigid_in else ArticulatedInertia,
+                          (X, self.I), rigid if rigid_in else articulated)
 
 
 @dataclass
@@ -416,8 +497,8 @@ class RobotView:
     def S(self, j: int) -> Motion:
         return Motion.const(self.t, self.robot.joints[j].S)
 
-    def I(self, j: int) -> Inertia:
-        return Inertia.const(self.t, self.robot.joints[j].I)
+    def I(self, j: int) -> RigidInertia:
+        return RigidInertia.from_matrix(self.t, self.robot.joints[j].I)
 
     def Xup(self, j: int, qj: Scalar) -> SE3:
         """Joint ``j``'s parent-to-child transform, constants folded, ``qj`` symbolic."""

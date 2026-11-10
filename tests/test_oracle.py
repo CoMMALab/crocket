@@ -300,3 +300,49 @@ def test_dead_outputs_are_eliminated():
     prog = crocket.trace(r, "rnea")
     live = prog.g.live(prog.flat_outputs[-1:])  # the leaf joint's torque only
     assert live.sum() < prog.g.live(prog.flat_outputs).sum()
+
+
+def test_compact_inertia_ops_match_dense():
+    """Featherstone's rbi / abi forms: X^T I X and I v against the dense 6x6 products, with every
+    input symbolic so nothing folds."""
+    from crocket.trace import ArticulatedInertia, Motion, RigidInertia, SE3, Tracer
+
+    t = Tracer(robot("panda"))
+
+    def sym(cls, name, n):
+        return t.record("input", cls, (), lambda: np.array([t.g.input(name, i) for i in range(n)]), key=name)
+
+    X, v = sym(SE3, "X", 12), sym(Motion, "v", 6)
+    rbi, abi = sym(RigidInertia, "rbi", 10), sym(ArticulatedInertia, "abi", 21)
+    outs = [X.T @ rbi @ X, X.T @ abi @ X, rbi @ v, abi @ v, rbi + abi]
+
+    rng = np.random.default_rng(0)
+    E = np.linalg.qr(rng.normal(size=(3, 3)))[0]
+    r, vv, m, h = rng.normal(size=3), rng.normal(size=6), 2.3, rng.normal(size=3)
+    A = rng.normal(size=(3, 3))
+    IO = A @ A.T + np.eye(3)
+    up = np.triu_indices(3)
+
+    def skew(x):
+        return np.array([[0, -x[2], x[1]], [x[2], 0, -x[0]], [-x[1], x[0], 0]])
+
+    R6 = np.block([[IO, skew(h)], [-skew(h), m * np.eye(3)]])
+    B = rng.normal(size=(6, 6))
+    A6 = B @ B.T
+    X6 = np.block([[E, np.zeros((3, 3))], [-E @ skew(r), E]])
+    vals = {"X": np.r_[E.reshape(9), r], "v": vv, "rbi": np.r_[m, h, IO[up]],
+            "abi": np.r_[A6[:3, :3][up], A6[:3, 3:].reshape(9), A6[3:, 3:][up]]}
+    got = t.g.evaluate({k: x[None] for k, x in vals.items()}, np.concatenate([o.elems.reshape(-1) for o in outs]))[0]
+
+    def to6(a):  # abi -> dense
+        I, H, M = np.zeros((3, 3)), a[6:15].reshape(3, 3), np.zeros((3, 3))
+        I[up], M[up] = a[:6], a[15:]
+        return np.block([[I + np.triu(I, 1).T, H], [H.T, M + np.triu(M, 1).T]])
+
+    Rp = X6.T @ R6 @ X6
+    hx = Rp[:3, 3:]
+    np.testing.assert_allclose(got[:10], np.r_[Rp[3, 3], hx[2, 1], hx[0, 2], hx[1, 0], Rp[:3, :3][up]], atol=1e-12)
+    np.testing.assert_allclose(to6(got[10:31]), X6.T @ A6 @ X6, atol=1e-12)
+    np.testing.assert_allclose(got[31:37], R6 @ vv, atol=1e-12)
+    np.testing.assert_allclose(got[37:43], A6 @ vv, atol=1e-12)
+    np.testing.assert_allclose(to6(got[43:]), R6 + A6, atol=1e-12)
