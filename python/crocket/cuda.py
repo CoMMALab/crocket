@@ -228,12 +228,22 @@ class _Emitter:
     # PROTOTYPE(uniform) and listed in OPEN_TASKS.md ("Lane-uniform tier"); grep the tag to clean up.
 
     def uniform(self, sc: sched_mod.Schedule) -> tuple[str, int]:
-        """One problem per warp, like ``warp``, but lanes run the SAME code: each stage's items are
-        grouped by expression shape and each group is one straight-line statement over lanes
-        ``i``, operands at ``s[base + stride * i]`` where the layout makes them affine and through
-        a per-item index table where it does not. ``warp`` gives every lane its own ``case``, which
-        SIMT runs one lane after another. Returns (code, scratch slots)."""
+        """Lanes over a task's elements (rank model step 3): one problem per block of
+        ``sc.units`` warps. The warps are the ranks: the schedule places items (with
+        ``placement="task"``, whole tasks) on warps, and each warp runs its own ``case`` per
+        stage. Inside a warp the lanes run the SAME code: the warp's items of a stage are grouped
+        by expression shape and each group is one straight-line statement over lanes ``i``,
+        operands at ``s[base + stride * i]`` where the layout makes them affine and through a
+        per-item index table where it does not. Returns (code, scratch slots)."""
         g, name = self.g, self.p.name
+        warps = sc.units
+        threads = 32 * warps
+        # A block barrier where a value crosses warps (step 4's sync_before), else a warp barrier:
+        # lanes are reassigned for every group, so a warp always syncs its own lanes.
+        block_bar = "__syncthreads();" if warps > 1 else "__syncwarp();"
+
+        def full(st: int) -> bool:
+            return warps == 1 or st in sc.sync_before
         # Layout: the uniform tier allocates its own slots instead of the schedule's interval
         # colouring, which scatters a value's elements. Inputs first, then each group's results
         # in one contiguous block in member order, so operand columns come out affine in the
@@ -285,20 +295,24 @@ class _Emitter:
                 continue
             ids = [in_slot[g._memo[("in", nm, i)]] for i in range(length)]
             assert ids == list(range(ids[0], ids[0] + length))  # inputs were given consecutive slots
-            body.append(f"        for (int i = lane; i < {length}; i += 32) s[{ids[0]} + i] = {nm}[i];")
-        # Pass 1: each stage's groups and, per scalar, the last stage that reads it.
-        stage_groups: list[list] = []
+            body.append(f"        for (int i = threadIdx.x; i < {length}; i += {threads}) "
+                        f"s[{ids[0]} + i] = {nm}[i];")
+        # The prologue (tables, inputs) is copied by every thread of the block, so all warps
+        # must pass a block barrier before stage 1 reads any of it.
+        body.append(f"        {block_bar}")
+        # Pass 1: each stage's groups per warp and, per scalar, the last stage that reads it.
+        stage_groups: list[dict[int, list]] = []
         last_read: dict[int, float] = {int(x): math.inf for x in self.p.flat_outputs}
         for st in range(1, sc.stages + 1):
             groups: dict = {}
             for it in sc.stage_items(st):
                 if it.task >= 0:
                     t = tree(it.scalar, it.task)
-                    groups.setdefault(repr(_shape(t)), []).append((it.scalar, t))
+                    groups.setdefault(it.rank, {}).setdefault(repr(_shape(t)), []).append((it.scalar, t))
                     for kind, x in _leaves(t):
                         if kind == "v":
                             last_read[x] = max(last_read.get(x, 0), st)
-            stage_groups.append(list(groups.values()))
+            stage_groups.append({r: list(gs.values()) for r, gs in groups.items()})
 
         def where(x: int) -> int:
             return in_slot[x] if x in in_slot else slots[x]
@@ -331,60 +345,42 @@ class _Emitter:
                     merged.append(f)
             free[:] = merged
 
-        for st, groups in enumerate(stage_groups, 1):
-            # PROTOTYPE(uniform): a barrier before every stage. Lanes are reassigned per group, so
-            # sync_before (which assumes the LPT ranks) does not apply; derive the real need.
-            body.append("        __syncwarp();")
-            for blk in [b_ for b_ in live if all(last_read.get(x, 0) < st for x in b_[2])]:
-                live.remove(blk)
-                release(blk[0], blk[1])
-            for members in groups:
-                members = _order(members, where)
-                count = len(members)
-                base = alloc(count)
-                live.append((base, count, [x for x, _ in members]))
-                for i, (x, _) in enumerate(members):
-                    slots[x] = base + i
-                leaves = [_leaves(t) for _, t in members]
-                names = []
-                for j in range(len(leaves[0])):
-                    kind = leaves[0][j][0]
-                    vals = [lv[j][1] if kind == "c" else where(lv[j][1]) for lv in leaves]
-                    stride = _affine(vals)
-                    if kind == "c" and stride == 0:
-                        names.append(literal(vals[0]))  # same constant in every lane: an immediate
-                    elif kind == "c":  # converted to T once in the prologue, as T(literal) would be
-                        names.append(f"cv[{consts(vals)} + i]")
-                    elif stride is not None:
-                        names.append(f"s[{_lin(vals[0], stride)}]")
-                    else:
-                        names.append(f"s[it[{ints(vals)} + i]]")
-                # Straight-line, no loop or branch: a stage is one basic block, so ptxas can
-                # interleave its independent groups and hide one group's latency behind another's.
-                # Lanes past the group recompute its last member and write the same value to the
-                # same slot (the split tier's trick for a partial batch), so the result is unchanged.
-                for c in range(0, count, 32):
-                    body.append(f"        {{ const int i = min(lane + {c}, {count - 1}); "
-                                f"s[{_lin(base, 1)}] = {_render(members[0][1], iter(names))}; }}")
-        body.append("        __syncwarp();")
+        for st, by_warp in enumerate(stage_groups, 1):
+            body.append(f"        {block_bar if full(st) else '__syncwarp();'}")
+            # A block frees only at a block barrier: another warp may still be reading it.
+            if full(st):
+                for blk in [b_ for b_ in live if all(last_read.get(x, 0) < st for x in b_[2])]:
+                    live.remove(blk)
+                    release(blk[0], blk[1])
+            if warps > 1:
+                body.append("        switch (threadIdx.x >> 5)\n        {")
+            for r, groups in sorted(by_warp.items()):
+                if warps > 1:
+                    body.append(f"        case {r}:\n        {{")
+                self._uniform_groups(groups, where, alloc, live, slots, ints, consts, body)
+                if warps > 1:
+                    body.append("        }\n        break;")
+            if warps > 1:
+                body.append("        default:\n            break;\n        }")
+        body.append(f"        {block_bar}")
         for nm, ids in self.p.outputs:
             src = []
             for i, x in enumerate(int(x) for x in ids):
                 if g.op[x] == "const":
-                    body.append(f"        if (lane == 0) {nm}[{i} * ys] = {literal(g.value[x])};")
+                    body.append(f"        if (threadIdx.x == 0) {nm}[{i} * ys] = {literal(g.value[x])};")
                     src.append(-1)
                 else:
                     src.append(where(x))
             off = ints(src)
-            body.append(f"        for (int i = lane; i < {len(ids)}; i += 32) "
+            body.append(f"        for (int i = threadIdx.x; i < {len(ids)}; i += {threads}) "
                         f"if (it[{off} + i] >= 0) {nm}[i * ys] = s[it[{off} + i]];")
         m, k = len(ctab), len(itab)
         head = [
             "        const int lane = threadIdx.x & 31;",
             f"        T* cv = s + {n};",
             f"        int* it = reinterpret_cast<int*>(cv + {m});  // {k} ints, reserved as {k} T",
-            f"        for (int i = lane; i < {m}; i += 32) cv[i] = T({name}_u_ctab[i]);",
-            f"        for (int i = lane; i < {k}; i += 32) it[i] = {name}_u_itab[i];",
+            f"        for (int i = threadIdx.x; i < {m}; i += {threads}) cv[i] = T({name}_u_ctab[i]);",
+            f"        for (int i = threadIdx.x; i < {k}; i += {threads}) it[i] = {name}_u_itab[i];",
         ]
         tables = _table("int", f"{name}_u_itab", itab) + _table("double", f"{name}_u_ctab", ctab)
         # PROTOTYPE(uniform): no __noinline__ stage split over the statement budget (the ptxas
@@ -392,6 +388,37 @@ class _Emitter:
         fn = (f"    template <class T>\n    __device__ __forceinline__ void {name}_uniform("
               f"{self.params}, T* __restrict__ s, int ys = 1)\n    {{\n" + "\n".join(head + body) + "\n    }\n")
         return tables + fn, n + m + k
+
+    def _uniform_groups(self, groups, where, alloc, live, slots, ints, consts, body):
+        """One warp's groups of one stage, each one lane-uniform statement (see ``uniform``)."""
+        for members in groups:
+            members = _order(members, where)
+            count = len(members)
+            base = alloc(count)
+            live.append((base, count, [x for x, _ in members]))
+            for i, (x, _) in enumerate(members):
+                slots[x] = base + i
+            leaves = [_leaves(t) for _, t in members]
+            names = []
+            for j in range(len(leaves[0])):
+                kind = leaves[0][j][0]
+                vals = [lv[j][1] if kind == "c" else where(lv[j][1]) for lv in leaves]
+                stride = _affine(vals)
+                if kind == "c" and stride == 0:
+                    names.append(literal(vals[0]))  # same constant in every lane: an immediate
+                elif kind == "c":  # converted to T once in the prologue, as T(literal) would be
+                    names.append(f"cv[{consts(vals)} + i]")
+                elif stride is not None:
+                    names.append(f"s[{_lin(vals[0], stride)}]")
+                else:
+                    names.append(f"s[it[{ints(vals)} + i]]")
+            # Straight-line, no loop or branch: a stage is one basic block, so ptxas can
+            # interleave its independent groups and hide one group's latency behind another's.
+            # Lanes past the group recompute its last member and write the same value to the
+            # same slot (the split tier's trick for a partial batch), so the result is unchanged.
+            for c in range(0, count, 32):
+                body.append(f"        {{ const int i = min(lane + {c}, {count - 1}); "
+                            f"s[{_lin(base, 1)}] = {_render(members[0][1], iter(names))}; }}")
 
 
 _COMMUTATIVE = {"add", "mul", "max", "min"}
@@ -477,6 +504,7 @@ def emit(program: Program, variants: list[Variant], budget: int = BUDGET) -> str
             code, n_slots = em.uniform(sc)
             out.append(code)
             consts.append(f"    constexpr int {program.name}_uniform_smem = {max(n_slots, 1)};")
+            consts.append(f"    constexpr int {program.name}_uniform_threads = {32 * v.units};")
             consts.append(f"    constexpr int {program.name}_uniform_stages = {sc.stages};")
             continue
         out.append(em.cooperative(sc, v.tier))

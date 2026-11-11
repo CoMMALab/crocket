@@ -61,7 +61,7 @@ def _kernel(i: int, p: Program, v: cuda.Variant, ns: str, T: str) -> str:
         launch = "(batch + 31) / 32, 32 * r::" + f"{p.name}_split_warps"
         smem = f"r::{p.name}_split_smem * sizeof({T})"
         scratch = f"(size_t)((batch + 31) / 32) * r::{p.name}_split_smem"
-    elif v.tier in ("warp", "uniform"):  # PROTOTYPE(uniform): launched like warp
+    elif v.tier == "warp":
         body = (f"    const int warps = blockDim.x >> 5;\n"
                 f"    const int b = blockIdx.x * warps + (threadIdx.x >> 5);\n    if (b >= batch) return;\n"
                 f"    extern __shared__ unsigned char raw[];\n"
@@ -71,14 +71,14 @@ def _kernel(i: int, p: Program, v: cuda.Variant, ns: str, T: str) -> str:
         launch = "(batch + block / 32 - 1) / (block / 32), block"
         smem = f"(block / 32) * r::{p.name}_{v.tier}_smem * sizeof({T})"
         scratch = f"(size_t)(batch + block / 32 - 1) / (block / 32) * (block / 32) * r::{p.name}_{v.tier}_smem"
-    else:
+    else:  # block, uniform (PROTOTYPE(uniform)): one problem per block
         body = (f"    const int b = blockIdx.x;\n"
                 f"    extern __shared__ unsigned char raw[];\n"
-                f"    {T}* s = !SH ? G + (size_t)b * r::{p.name}_block_smem : ({T}*)raw;\n"
+                f"    {T}* s = !SH ? G + (size_t)b * r::{p.name}_{v.tier}_smem : ({T}*)raw;\n"
                 f"    const {T}* x = X + (size_t)b * {stride};\n    {fn}({ins}, {outs}, s, batch);\n")
-        launch = f"batch, r::{p.name}_block_threads"
-        smem = f"r::{p.name}_block_smem * sizeof({T})"
-        scratch = f"(size_t)batch * r::{p.name}_block_smem"
+        launch = f"batch, r::{p.name}_{v.tier}_threads"
+        smem = f"r::{p.name}_{v.tier}_smem * sizeof({T})"
+        scratch = f"(size_t)batch * r::{p.name}_{v.tier}_smem"
     return f"""
 // SH: scratch is shared memory. A template parameter, not `G == nullptr` at run time, so after
 // inlining the compiler knows the address space and emits shared loads, not generic ones.
