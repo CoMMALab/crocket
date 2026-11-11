@@ -48,6 +48,9 @@ class Schedule:
     n_slots: int
     task_of: dict[int, int]  # scalar -> owning task (materialized scalars only)
     out_index: dict[int, list[int]] = field(default_factory=dict)  # scalar -> flat output positions
+    # stage -> (named barrier id, rank bitmask) for a barrier among some ranks only; a stage in
+    # sync_before but not here is a full barrier
+    partial: dict[int, tuple[int, int]] = field(default_factory=dict)
 
     def stage_items(self, stage: int) -> list[Item]:
         return [it for it in self.items if it.stage == stage]
@@ -72,7 +75,7 @@ def walk(g, s: int, task: int, task_of: dict[int, int], seen: set[int], leaves: 
 
 
 def build(program: Program, units: int, threshold: int = 8, narrow: int = 0,
-          whole: bool = False) -> Schedule:
+          placement: str = "element", sync: str = "block") -> Schedule:
     g = program.g
     outputs = program.flat_outputs
     live = g.live(outputs)
@@ -125,22 +128,26 @@ def build(program: Program, units: int, threshold: int = 8, narrow: int = 0,
 
     # REDESIGN(ranks): ``narrow`` only reduces barriers around the per-lane warp/block tiers'
     # serialised work; delete it with those tiers.
-    # 3. rank assignment per stage. By default items spread longest first (LPT), so one task's
-    #    elements can land on several ranks. ``whole`` (the rank model: ranks are warps) keeps
-    #    every task whole on one rank, longest task first, on the rank that wrote most of its
-    #    leaves if that keeps the stage within LPT's makespan bound, else the least-loaded rank;
-    #    step 4 then puts a barrier only where a value really crosses ranks. A stage of at most
-    #    ``narrow`` items keeps tasks whole with no load bound.
+    # 3. rank assignment per stage; ``placement`` is what a rank is given. "element": items
+    #    spread longest first (LPT), so one task's elements can land on several ranks. "task"
+    #    (the rank model: ranks are warps): every task stays on one rank, longest task first, on
+    #    the rank that wrote most of its leaves if that keeps the stage within LPT's makespan
+    #    bound, else the least-loaded rank; step 4 then puts a barrier only where a value really
+    #    crosses ranks. A stage of at most ``narrow`` items keeps tasks on one rank with no
+    #    load bound.
+    if placement not in ("element", "task"):
+        raise ValueError(f"placement {placement!r}: 'element' or 'task'")
+    by_task_placement = placement == "task"
     rank_of: dict[int, int] = {}
     for st in range(1, stages + 1):
         stage = [it for it in items if it.stage == st]
         load = [0] * units
-        if whole or len(stage) <= narrow:
+        if by_task_placement or len(stage) <= narrow:
             by_task: dict[int, list[Item]] = {}
             for it in stage:
                 by_task.setdefault(it.task, []).append(it)
             cost = {n: sum(it.cost for it in its) for n, its in by_task.items()}
-            cap = (max(max(cost.values()), -(-sum(cost.values()) // units)) if whole and cost
+            cap = (max(max(cost.values()), -(-sum(cost.values()) // units)) if by_task_placement and cost
                    else float("inf"))
             for task in sorted(by_task, key=lambda n: (-cost[n], n)):
                 votes = [0] * units
@@ -168,19 +175,66 @@ def build(program: Program, units: int, threshold: int = 8, narrow: int = 0,
         for leaf in it.leaves:
             readers.setdefault(leaf, []).append(it)
     sync_before: set[int] = set()
-    pending: dict[int, int] = {}  # scalar -> writer rank since the last sync
-    for st in range(1, stages + 1):
-        stage_ranks = {it.scalar: it.rank for it in items if it.stage == st}
-        for it in (it for it in items if it.stage == st):
-            if any(leaf in pending and pending[leaf] != it.rank for leaf in it.leaves):
+    partial: dict[int, tuple[int, int]] = {}
+    if sync == "block":
+        pending: dict[int, int] = {}  # scalar -> writer rank since the last sync
+        for st in range(1, stages + 1):
+            stage_ranks = {it.scalar: it.rank for it in items if it.stage == st}
+            for it in (it for it in items if it.stage == st):
+                if any(leaf in pending and pending[leaf] != it.rank for leaf in it.leaves):
+                    sync_before.add(st)
+                    pending.clear()
+                    break
+            pending.update({s: r for s, r in stage_ranks.items() if s in readers})
+    elif sync == "named":
+        # REDESIGN(ranks): correct but measured no faster than "block" (within +-5% at B=1,
+        # worse at large B from lost slot reuse): the stage-levelled schedule leaves a skipped
+        # rank nothing to run ahead to. Keep only if a dataflow schedule (step 2b) uses it.
+        # Point to point, as an MPI receive: a stage's barrier holds only the ranks that read a
+        # value they cannot see yet, and the ranks that can. visible[s] is the set of ranks a
+        # write is visible to; a barrier among P makes every write visible to one member of P
+        # visible to all of P (bar.sync orders shared memory among its participants, and that
+        # ordering composes along chains of barriers).
+        visible: dict[int, set[int]] = {}
+        everyone = set(range(units))
+        for st in range(1, stages + 1):
+            stage = [it for it in items if it.stage == st]
+            need: set[int] = set()
+            for it in stage:
+                for leaf in it.leaves:
+                    if it.rank not in visible[leaf]:
+                        need |= {it.rank} | visible[leaf]
+            if need:
                 sync_before.add(st)
-                pending.clear()
-                break
-        pending.update({s: r for s, r in stage_ranks.items() if s in readers})
+                if need != everyone:
+                    partial[st] = (0, sum(1 << r for r in need))  # id assigned below
+                members = everyone if need == everyone else need
+                for v in visible.values():
+                    if v & members:
+                        v |= members
+            for it in stage:
+                if it.scalar in readers:
+                    visible[it.scalar] = {it.rank}
+        # One named barrier id per distinct rank set (sm_80+: ids 1-15; 0 is __syncthreads). Only
+        # its members ever use an id, and they reach its barriers in program order, so reusing it
+        # is safe. Sets past 15 become full barriers: a superset, so still correct.
+        ids: dict[int, int] = {}
+        for st in sorted(partial):
+            mask = partial[st][1]
+            if mask not in ids and len(ids) < 15:
+                ids[mask] = len(ids) + 1
+            if mask in ids:
+                partial[st] = (ids[mask], mask)
+            else:
+                del partial[st]
+    else:
+        raise ValueError(f"sync {sync!r}: 'block' or 'named'")
 
-    # 5. slots by interval colouring; a slot frees at the first sync after its last read
+    # 5. slots by interval colouring; a slot frees at the first sync after its last read. Only a
+    #    full barrier orders every last reader before the slot's next writer, so a partial one
+    #    never frees a slot.
     last_read = {s: max(r.stage for r in rs) for s, rs in readers.items()}
-    syncs = sorted(sync_before)
+    syncs = sorted(sync_before - set(partial))
     free_at = {s: next((b for b in syncs if b > last), stages + 1) for s, last in last_read.items()}
     slots: dict[int, int] = {}
     busy: list[tuple[int, int]] = []  # (free stage, slot)
@@ -199,4 +253,4 @@ def build(program: Program, units: int, threshold: int = 8, narrow: int = 0,
         slots[it.scalar] = slot
         busy.append((free_at[it.scalar], slot))
     return Schedule(program, units, threshold, items, stages, sync_before, slots, n_slots, task_of,
-                    out_index)
+                    out_index, partial)

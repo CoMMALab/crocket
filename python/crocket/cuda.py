@@ -54,7 +54,8 @@ class Variant:
     units: int = 1  # lanes per problem (warp: 32, block: threads), warps per block for split
     threshold: int = 8  # scalarisation threshold, see :mod:`crocket.schedule`
     narrow: int = 0  # stages of at most this many items keep tasks whole on one lane
-    whole: bool = False  # rank model: every task whole on one rank (see schedule.build step 3)
+    placement: str = "element"  # what a rank is given: "element" or "task" (schedule.build step 3)
+    sync: str = "block"  # "block": __syncthreads; "named": only the ranks that exchange (split)
 
 
 class _Emitter:
@@ -187,6 +188,11 @@ class _Emitter:
         out, calls = [], []
         for st, cases in stages:
             sync = f"        {barrier}\n" if barrier and st in sc.sync_before else ""
+            if st in sc.partial:  # a named barrier among the ranks that exchange values
+                assert mode == "split", "named barriers count whole warps: split ranks only"
+                bid, mask = sc.partial[st]
+                sync = (f"        if (({mask}u >> (threadIdx.x >> 5)) & 1u) asm volatile(\"bar.sync %0, %1;\" "
+                        f":: \"n\"({bid}), \"n\"({32 * bin(mask).count('1')}) : \"memory\");\n")
             sw = (f"        switch ({rank})\n        {{\n" + "\n".join(cases)
                   + "\n        default:\n            break;\n        }\n")
             if split:
@@ -451,7 +457,7 @@ def emit(program: Program, variants: list[Variant], budget: int = BUDGET) -> str
         if v.tier == "thread":
             out.append(em.thread())
             continue
-        sc = sched_mod.build(program, v.units, v.threshold, v.narrow, v.whole)
+        sc = sched_mod.build(program, v.units, v.threshold, v.narrow, v.placement, v.sync)
         if v.tier == "uniform":  # PROTOTYPE(uniform)
             code, n_slots = em.uniform(sc)
             out.append(code)

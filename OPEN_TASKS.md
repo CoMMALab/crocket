@@ -28,14 +28,23 @@ re-checked against current code.
   instruction stream), and lanes inside a warp do the same work, either on different problems
   (step 1, built on `split`) or on a task's elements (step 3, GLASS-style). Step 2 is
   point-to-point sync with named barriers (`bar.sync id, n`) instead of `__syncthreads`.
-  Step 1 so far: `Variant(..., whole=True)` keeps every task whole on one rank (warp), placed
+  Step 1 so far: `Variant(..., placement="task")` keeps every task on one rank (warp), placed
   on the rank that wrote most of its inputs within LPT's load bound (`schedule.build` step 3).
-  Measured (us, B=1, idle A5000; thread / best split / best split whole): RNEA baxter
+  Measured (us, B=1, idle A5000; thread / best split element / best split task): RNEA baxter
   17.7 / 34.4 / 16.0; RNEA panda 8.3 / 16.2 / 12.7; rnea_derivatives baxter 197 / 174 / 137
   (B=1024: 281 / 228 / 173); panda 76 / 98 / 84; traj_collision panda 164 / 109 / 109; fetch
   230 / 146 / 155. It halves cross-warp reads and cuts RNEA barriers 40-46%, but trajopt's
-  barriers do not drop and its large uneven tasks balance worse, so `whole` is a per-robot
-  choice: add it to `tune.candidates`. The thread tier still wins at B=8192 everywhere.
+  barriers do not drop and its large uneven tasks balance worse, so `placement` is a per-robot
+  choice, tuned in `tune.candidates`. The thread tier still wins at B=8192 everywhere.
+  Step 2 (named barriers, `Variant(sync="named")`): only the ranks that exchange a value sync
+  (`bar.sync id, n` per distinct rank set), with visibility tracked through chains of barriers.
+  Correct (bit-identical) but no faster: within +-5% of `__syncthreads` at B=1 on RNEA,
+  rnea_derivatives and traj_collision, and up to 1.7x slower at B=8192, because a slot is not
+  reused after a partial barrier. The stage-levelled schedule leaves a skipped rank nothing to
+  run ahead to; barrier waits are not the cost. Not in `tune.candidates`. Step 2b, if pursued:
+  a dataflow schedule (each warp runs its tasks in dependency order, consumers wait on
+  producers with `bar.arrive` (producer, non-blocking) / `bar.sync` (consumer), as an MPI
+  send/recv) so a warp can run ahead; then decide whether `sync="named"` stays.
   Cleanup once step 3 lands, tagged `REDESIGN(ranks)` and `PROTOTYPE(uniform)` in code: delete
   the lane-switch `warp`/`block` codegen (`cuda._Emitter.cooperative`), `Variant.narrow`
   (`schedule.build`), and the `uniform` tier, or fold what step 3 reuses from it. Move GRiM's IK
