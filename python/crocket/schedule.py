@@ -234,9 +234,9 @@ def build(program: Program, units: int, threshold: int = 8, narrow: int = 0,
             else:
                 del partial[st]
     elif sync == "dataflow":
-        # REDESIGN(ranks): correct but measured 1.4-2.3x slower than "block" on RNEA: the
-        # barrier stalls it removes were true dependency waits (the joint chain), so warps wait
-        # on their producers about as long, and polling the counters costs more than a barrier.
+        # A tuning choice against "block" (tune.candidates): on RNEA it measured 1.4-2.3x slower,
+        # since the barrier stalls it removes were true dependency waits along the joint chain and
+        # polling costs more than a barrier; graphs with more independent work may favour it.
         # Each rank runs its items in stage order (one global dependency order) and never meets
         # a barrier. A rank publishes "finished stage s" in its progress counter without waiting
         # (an MPI send); a reader waits only on the producer of a value it reads (a receive). The

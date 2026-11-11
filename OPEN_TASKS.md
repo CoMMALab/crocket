@@ -53,7 +53,9 @@ re-checked against current code.
   stalls (2.1k + 1.9k): the time warps spent at barriers was dependency waiting along the joint
   chain, not imbalance a dataflow schedule removes, and polling costs more than a barrier
   wake. Conclusion of steps 2 and 2b: synchronization is not the cooperative tiers' cost; the
-  dependency critical path is. Both stay tagged for removal; not in `tune.candidates`.
+  dependency critical path is. `dataflow` vs `block` is kept as a split tuning choice
+  (`tune.candidates`), since another graph shape may favour dataflow; `named` stays tagged for
+  removal and untuned.
   Cleanup once step 3 lands, tagged `REDESIGN(ranks)` and `PROTOTYPE(uniform)` in code: delete
   the lane-switch `warp`/`block` codegen (`cuda._Emitter.cooperative`), `Variant.narrow`
   (`schedule.build`), and the `uniform` tier, or fold what step 3 reuses from it. Move GRiM's IK

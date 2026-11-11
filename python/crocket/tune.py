@@ -30,11 +30,13 @@ class LaunchConfig:
     threshold: int
     block: int  # threads per block at launch (thread / warp tiers; fixed by units otherwise)
     ms: float
-    placement: str = "element"  # split only; a default so configs cached before it still load
+    placement: str = "element"  # split only; defaults so configs cached before them still load
+    sync: str = "block"
 
     @property
     def variant(self) -> cuda.Variant:
-        return cuda.Variant(self.tier, self.units, self.threshold, placement=self.placement)
+        return cuda.Variant(self.tier, self.units, self.threshold, placement=self.placement,
+                            sync=self.sync)
 
 
 def candidates(p: Program, dtype=np.float32) -> list[tuple[cuda.Variant, int]]:
@@ -42,16 +44,18 @@ def candidates(p: Program, dtype=np.float32) -> list[tuple[cuda.Variant, int]]:
     size = np.dtype(dtype).itemsize
     out = [(cuda.Variant("thread"), b) for b in (64, 128, 256)]
     for threshold in (1, 8, 64):
-        layouts = ([(cuda.Variant("split", w, threshold, placement=pl), 32 * w)
-                    for w in (2, 4, 8) for pl in ("element", "task")]
+        # split: barriers vs dataflow is per robot / algorithm, as the dependency graph's shape
+        # decides which wins (RNEA's joint chain favours barriers), so both are measured
+        layouts = ([(cuda.Variant("split", w, threshold, placement=pl, sync=sy), 32 * w)
+                    for w in (2, 4, 8) for pl in ("element", "task") for sy in ("block", "dataflow")]
                    + [(cuda.Variant("warp", 32, threshold), b) for b in (64, 128, 256)]
                    + [(cuda.Variant("block", t, threshold), t) for t in (32, 64, 128, 256)])
         scheds = {}
         for v, block in layouts:
             key = (v.units if v.tier != "warp" else 32)
-            sc = (scheds.get((v.tier, key, v.placement))
-                  or schedule.build(p, key, threshold, placement=v.placement))
-            scheds[v.tier, key, v.placement] = sc
+            sc = (scheds.get((v.tier, key, v.placement, v.sync))
+                  or schedule.build(p, key, threshold, placement=v.placement, sync=v.sync))
+            scheds[v.tier, key, v.placement, v.sync] = sc
             per_block = cuda.smem(sc, v.tier) * size * (block // 32 if v.tier == "warp" else 1)
             blocks = SMEM_PER_SM // per_block if per_block else 32
             if per_block <= harness.SMEM_LIMIT and blocks * block // 32 >= MIN_WARPS_PER_SM:
@@ -75,18 +79,18 @@ def tune(p: Program, batch: int, dtype=np.float32, reps: int = 50, options: dict
     if path.exists() and not refresh:
         return LaunchConfig(**json.loads(path.read_text()))
     cands = candidates(p, dtype)
-    variants = list({(v.tier, v.units, v.threshold, v.placement): v for v, _ in cands}.values())
+    variants = list({(v.tier, v.units, v.threshold, v.placement, v.sync): v for v, _ in cands}.values())
     with ThreadPoolExecutor() as pool:
-        built = dict(zip(((v.tier, v.units, v.threshold, v.placement) for v in variants),
+        built = dict(zip(((v.tier, v.units, v.threshold, v.placement, v.sync) for v in variants),
                          pool.map(lambda v: harness.build([(p, v)], dtype), variants)))
     x = harness.sample_inputs(p, batch)
     best = None
     for v, block in cands:
-        b = built[v.tier, v.units, v.threshold, v.placement]
+        b = built[v.tier, v.units, v.threshold, v.placement, v.sync]
         harness.validate(b)
         _, ms = b.run(0, x, block=block, reps=reps)
         if best is None or ms < best.ms:
-            best = LaunchConfig(v.tier, v.units, v.threshold, block, ms, v.placement)
+            best = LaunchConfig(v.tier, v.units, v.threshold, block, ms, v.placement, v.sync)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(asdict(best)))
     return best
