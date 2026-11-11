@@ -71,7 +71,8 @@ def walk(g, s: int, task: int, task_of: dict[int, int], seen: set[int], leaves: 
                 stack.append(a)
 
 
-def build(program: Program, units: int, threshold: int = 8, narrow: int = 0) -> Schedule:
+def build(program: Program, units: int, threshold: int = 8, narrow: int = 0,
+          whole: bool = False) -> Schedule:
     g = program.g
     outputs = program.flat_outputs
     live = g.live(outputs)
@@ -124,24 +125,32 @@ def build(program: Program, units: int, threshold: int = 8, narrow: int = 0) -> 
 
     # REDESIGN(ranks): ``narrow`` only reduces barriers around the per-lane warp/block tiers'
     # serialised work; delete it with those tiers.
-    # 3. lane assignment per stage. A wide stage spreads items longest first (LPT). A stage of at
-    #    most ``narrow`` items keeps each task whole on the lane that wrote most of its leaves, so
-    #    a chain of narrow stages stays on one lane and step 4 needs no barrier between them.
+    # 3. rank assignment per stage. By default items spread longest first (LPT), so one task's
+    #    elements can land on several ranks. ``whole`` (the rank model: ranks are warps) keeps
+    #    every task whole on one rank, longest task first, on the rank that wrote most of its
+    #    leaves if that keeps the stage within LPT's makespan bound, else the least-loaded rank;
+    #    step 4 then puts a barrier only where a value really crosses ranks. A stage of at most
+    #    ``narrow`` items keeps tasks whole with no load bound.
     rank_of: dict[int, int] = {}
     for st in range(1, stages + 1):
         stage = [it for it in items if it.stage == st]
         load = [0] * units
-        if len(stage) <= narrow:
+        if whole or len(stage) <= narrow:
             by_task: dict[int, list[Item]] = {}
             for it in stage:
                 by_task.setdefault(it.task, []).append(it)
-            for task in sorted(by_task, key=lambda n: (-sum(it.cost for it in by_task[n]), n)):
+            cost = {n: sum(it.cost for it in its) for n, its in by_task.items()}
+            cap = (max(max(cost.values()), -(-sum(cost.values()) // units)) if whole and cost
+                   else float("inf"))
+            for task in sorted(by_task, key=lambda n: (-cost[n], n)):
                 votes = [0] * units
                 for it in by_task[task]:
                     for leaf in it.leaves:
                         if leaf in rank_of:
                             votes[rank_of[leaf]] += 1
-                r = min(range(units), key=lambda u: (-votes[u], load[u], u))
+                fits = [u for u in range(units) if votes[u] and load[u] + cost[task] <= cap]
+                r = (min(fits, key=lambda u: (-votes[u], load[u], u)) if fits
+                     else min(range(units), key=lambda u: (load[u], u)))
                 for it in by_task[task]:
                     it.rank = r
                     load[r] += it.cost

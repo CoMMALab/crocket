@@ -54,6 +54,7 @@ class Variant:
     units: int = 1  # lanes per problem (warp: 32, block: threads), warps per block for split
     threshold: int = 8  # scalarisation threshold, see :mod:`crocket.schedule`
     narrow: int = 0  # stages of at most this many items keep tasks whole on one lane
+    whole: bool = False  # rank model: every task whole on one rank (see schedule.build step 3)
 
 
 class _Emitter:
@@ -450,7 +451,7 @@ def emit(program: Program, variants: list[Variant], budget: int = BUDGET) -> str
         if v.tier == "thread":
             out.append(em.thread())
             continue
-        sc = sched_mod.build(program, v.units, v.threshold, v.narrow)
+        sc = sched_mod.build(program, v.units, v.threshold, v.narrow, v.whole)
         if v.tier == "uniform":  # PROTOTYPE(uniform)
             code, n_slots = em.uniform(sc)
             out.append(code)

@@ -28,6 +28,14 @@ re-checked against current code.
   instruction stream), and lanes inside a warp do the same work, either on different problems
   (step 1, built on `split`) or on a task's elements (step 3, GLASS-style). Step 2 is
   point-to-point sync with named barriers (`bar.sync id, n`) instead of `__syncthreads`.
+  Step 1 so far: `Variant(..., whole=True)` keeps every task whole on one rank (warp), placed
+  on the rank that wrote most of its inputs within LPT's load bound (`schedule.build` step 3).
+  Measured (us, B=1, idle A5000; thread / best split / best split whole): RNEA baxter
+  17.7 / 34.4 / 16.0; RNEA panda 8.3 / 16.2 / 12.7; rnea_derivatives baxter 197 / 174 / 137
+  (B=1024: 281 / 228 / 173); panda 76 / 98 / 84; traj_collision panda 164 / 109 / 109; fetch
+  230 / 146 / 155. It halves cross-warp reads and cuts RNEA barriers 40-46%, but trajopt's
+  barriers do not drop and its large uneven tasks balance worse, so `whole` is a per-robot
+  choice: add it to `tune.candidates`. The thread tier still wins at B=8192 everywhere.
   Cleanup once step 3 lands, tagged `REDESIGN(ranks)` and `PROTOTYPE(uniform)` in code: delete
   the lane-switch `warp`/`block` codegen (`cuda._Emitter.cooperative`), `Variant.narrow`
   (`schedule.build`), and the `uniform` tier, or fold what step 3 reuses from it. Move GRiM's IK
