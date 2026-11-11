@@ -80,8 +80,8 @@ def walk(g, s: int, task: int, task_of: dict[int, int], seen: set[int], leaves: 
                 stack.append(a)
 
 
-def build(program: Program, units: int, threshold: int = 8, narrow: int = 0,
-          placement: str = "element", sync: str = "block") -> Schedule:
+def build(program: Program, units: int, threshold: int = 8, placement: str = "element",
+          sync: str = "block") -> Schedule:
     g = program.g
     outputs = program.flat_outputs
     live = g.live(outputs)
@@ -132,15 +132,12 @@ def build(program: Program, units: int, threshold: int = 8, narrow: int = 0,
             items.append(Item(s, -1, 0, stage=1))
     stages = max(stages, 1 if items else 0)
 
-    # REDESIGN(ranks): ``narrow`` only reduces barriers around the per-lane warp/block tiers'
-    # serialised work; delete it with those tiers.
     # 3. rank assignment per stage; ``placement`` is what a rank is given. "element": items
     #    spread longest first (LPT), so one task's elements can land on several ranks. "task"
     #    (the rank model: ranks are warps): every task stays on one rank, longest task first, on
     #    the rank that wrote most of its leaves if that keeps the stage within LPT's makespan
     #    bound, else the least-loaded rank; step 4 then puts a barrier only where a value really
-    #    crosses ranks. A stage of at most ``narrow`` items keeps tasks on one rank with no
-    #    load bound.
+    #    crosses ranks.
     if placement not in ("element", "task"):
         raise ValueError(f"placement {placement!r}: 'element' or 'task'")
     by_task_placement = placement == "task"
@@ -148,13 +145,12 @@ def build(program: Program, units: int, threshold: int = 8, narrow: int = 0,
     for st in range(1, stages + 1):
         stage = [it for it in items if it.stage == st]
         load = [0] * units
-        if by_task_placement or len(stage) <= narrow:
+        if by_task_placement:
             by_task: dict[int, list[Item]] = {}
             for it in stage:
                 by_task.setdefault(it.task, []).append(it)
             cost = {n: sum(it.cost for it in its) for n, its in by_task.items()}
-            cap = (max(max(cost.values()), -(-sum(cost.values()) // units)) if by_task_placement and cost
-                   else float("inf"))
+            cap = max(max(cost.values()), -(-sum(cost.values()) // units))
             for task in sorted(by_task, key=lambda n: (-cost[n], n)):
                 votes = [0] * units
                 for it in by_task[task]:

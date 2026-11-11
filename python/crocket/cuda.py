@@ -5,11 +5,16 @@ allocation, no globals. Outputs are written at ``y[i * ys]`` so structure-of-arr
 coalesce (GRiM's ``ys`` convention). Per algorithm ``<alg>``:
 
 ``<alg>_thread``  one problem per thread, straight-line (cricket's tier).
-``<alg>_split``   one problem per lane, 32 per block, the block's warps splitting the stages
-                  (``cricket.tiered``'s warp mode); scratch ``<alg>_split_smem`` per block.
-``<alg>_warp``    one problem per warp, its lanes splitting each stage; ``<alg>_warp_smem``
-                  per warp.
-``<alg>_block``   one problem per block of ``<alg>_block_threads``; ``<alg>_block_smem``.
+``<alg>_warp``    one warp (one rank) holding ``<alg>_warp_problems`` problems (P), 32 / P lanes
+                  each; scratch ``<alg>_warp_smem`` per warp, several warps per block side by side.
+``<alg>_block``   ``<alg>_block_threads / 32`` warps (the ranks) holding P problems;
+                  ``<alg>_block_smem`` per block.
+
+P (``Variant.problems``) splits each warp's lanes between problems and a problem's elements:
+P = 1 is GLASS's contract (one problem per warp / block, lanes over its elements), P = 32 puts
+one problem on each lane with the warps sharing each problem's stages (``cricket.tiered``'s
+warp mode, formerly the ``split`` tier). Every thread passes its own problem's pointers. See
+docs/tier_layouts.html.
 
 A unit over ``budget`` statements is emitted as ``__noinline__`` stage functions: large
 straight-line functions are where ptxas has silently miscompiled cricket traces at -O2/-O3.
@@ -24,7 +29,9 @@ from . import schedule as sched_mod
 from .robot import Robot
 from .trace import ALGORITHMS, Program
 
-TIERS = ("thread", "split", "warp", "block", "uniform")  # PROTOTYPE(uniform): last entry
+TIERS = ("thread", "warp", "block")
+WARPS = (1, 2, 4, 8)  # k: warps (ranks) per block; the warp tier is k = 1
+PROBLEMS = (1, 2, 4, 8, 16, 32)  # P: problems per warp, 32 / P lanes each
 BUDGET = 4000
 
 _INFIX = {"add": "+", "sub": "-", "mul": "*", "div": "/"}
@@ -51,10 +58,10 @@ class Variant:
     """How one algorithm is emitted at one tier."""
 
     tier: str
-    units: int = 1  # lanes per problem (warp: 32, block: threads), warps per block for split
+    units: int = 1  # block: threads (a multiple of 32); warp: ignored (one warp)
     threshold: int = 8  # scalarisation threshold, see :mod:`crocket.schedule`
-    narrow: int = 0  # stages of at most this many items keep tasks whole on one lane
     placement: str = "element"  # what a rank is given: "element" or "task" (schedule.build step 3)
+    problems: int = 1  # problems per warp (P): 1, 2, 4, 8, 16 or 32; lanes per problem 32 / P
     sync: str = "block"  # "block": __syncthreads; "named": only the ranks that exchange; "dataflow":
     #                      no barriers, ranks wait on producers' progress counters (split only)
 
@@ -142,21 +149,17 @@ class _Emitter:
 
     # ---- cooperative tiers ----------------------------------------------------------------
 
-    def cooperative(self, sc: sched_mod.Schedule, mode: str) -> str:
-        # REDESIGN(ranks): "warp" and "block" switch on the LANE, so each lane runs its own case
-        # and SIMT serialises them (RNEA panda B=1: thread 8.3 us, warp 87 us). Only "split",
-        # which switches on the warp, is a sound rank model. Replace warp/block with warps as
-        # ranks (lanes = problems, or later lanes = a task's elements); GRiM's IK kernels
-        # (ik_crocket/ck.cuh, region_ik/brownian_ik.cu) call _warp/_block and move with it.
+    def cooperative(self, sc: sched_mod.Schedule, mode: str, fn: str | None = None) -> str:
+        """``mode="split"``: the warp / block tiers at P = 32, one problem per lane, the warps the
+        ranks (each its own ``case`` per stage), named ``fn``. With one warp the rank is always 0,
+        so packed warps each run their own 32 problems. ``mode="thread"`` is the same schedule run
+        by one thread."""
         g, name = self.g, self.p.name
         rank, slot = {
-            "warp": ("threadIdx.x & 31", "s[{k}]"),
-            "block": ("threadIdx.x", "s[{k}]"),
-            "split": ("threadIdx.x >> 5", "s[{k} * 32 + (threadIdx.x & 31)]"),
+            "split": ("threadIdx.x >> 5" if sc.units > 1 else "0", "s[{k} * 32 + (threadIdx.x & 31)]"),
             "thread": ("0", "s[{k}]"),
         }[mode]
-        barrier = {"warp": "__syncwarp();", "block": "__syncthreads();", "split": "__syncthreads();",
-                   "thread": None}[mode]
+        barrier = {"split": "__syncthreads();", "thread": None}[mode]
 
         assert not sc.dataflow or mode == "split", "dataflow progress counters are per warp: split only"
         counters = f"reinterpret_cast<volatile int*>(s + {max(sc.n_slots, 1) * 32})"  # after the slots
@@ -194,7 +197,7 @@ class _Emitter:
             stages.append((st, cases))
 
         split = total > self.budget
-        fn = f"{name}_{mode}"
+        fn = fn or f"{name}_{mode}"
         sig = f"{self.params}, T* __restrict__ s, int ys"
         out, calls = [], []
         for st, cases in stages:
@@ -223,33 +226,51 @@ class _Emitter:
         return "".join(out) + head + "".join(calls) + "    }\n"
 
 
-    # ---- uniform tier (PROTOTYPE) ---------------------------------------------------------
-    # PROTOTYPE(uniform): an experiment, not a finished tier. Every shortcut is tagged
-    # PROTOTYPE(uniform) and listed in OPEN_TASKS.md ("Lane-uniform tier"); grep the tag to clean up.
+    # ---- warp and block tiers --------------------------------------------------------------
+    # The remaining shortcuts are tagged PROTOTYPE(uniform) and listed in OPEN_TASKS.md
+    # ("Lane-uniform warp / block tiers"); grep the tag to clean up.
 
-    def uniform(self, sc: sched_mod.Schedule) -> tuple[str, int]:
-        """Lanes over a task's elements (rank model step 3): one problem per block of
-        ``sc.units`` warps. The warps are the ranks: the schedule places items (with
-        ``placement="task"``, whole tasks) on warps, and each warp runs its own ``case`` per
-        stage. Inside a warp the lanes run the SAME code: the warp's items of a stage are grouped
-        by expression shape and each group is one straight-line statement over lanes ``i``,
-        operands at ``s[base + stride * i]`` where the layout makes them affine and through a
-        per-item index table where it does not. Returns (code, scratch slots)."""
+    def uniform(self, sc: sched_mod.Schedule, tier: str, problems: int = 1) -> tuple[str, int]:
+        """The warp and block tiers: ``sc.units`` warps (the ranks; 1 for the warp tier) holding
+        ``problems`` problems (P). Each warp's 32 lanes split into P groups of W = 32 / P lanes,
+        group ``lane / W`` working on its own problem; lane ``i`` of every warp serves the same
+        problem. P = 1 is GLASS's contract (one problem per warp / block); P = 32 puts one
+        problem on each lane, as the split tier does. See docs/tier_layouts.html.
+
+        The schedule places items (with ``placement="task"``, whole tasks) on warps, and each
+        warp runs its own ``case`` per stage. Inside a warp every lane runs the SAME code: the
+        warp's items of a stage are grouped by expression shape and each group is one
+        straight-line statement, run in passes of W lanes, operands at ``sp[base + stride * i]``
+        where the layout makes them affine and through a per-item index table where it does
+        not. Every thread passes its own problem's input and output pointers. Returns (code,
+        scratch elements)."""
         g, name = self.g, self.p.name
-        warps = sc.units
+        if problems not in PROBLEMS:
+            raise ValueError(f"problems={problems}: one of {PROBLEMS}")
+        warps, P = sc.units, problems
+        W = 32 // P  # lanes per problem
         threads = 32 * warps
+        # The warp tier's warps share a block with other problems' warps: index by lane only.
+        tid = "lane" if warps == 1 else "threadIdx.x"
+        pre = f"{name}_{tier}"  # table names: a header can hold both tiers
         # A block barrier where a value crosses warps (step 4's sync_before), else a warp barrier:
         # lanes are reassigned for every group, so a warp always syncs its own lanes.
         block_bar = "__syncthreads();" if warps > 1 else "__syncwarp();"
 
         def full(st: int) -> bool:
             return warps == 1 or st in sc.sync_before
-        # Layout: the uniform tier allocates its own slots instead of the schedule's interval
+        # Layout: these tiers allocate their own slots instead of the schedule's interval
         # colouring, which scatters a value's elements. Inputs first, then each group's results
         # in one contiguous block in member order, so operand columns come out affine in the
-        # lane (``s[base + stride * i]``) and need no table. A block is freed (first-fit, merged
+        # lane (``sp[base + stride * i]``) and need no table. A block is freed (first-fit, merged
         # with free neighbours) once the last stage reading any of its members has passed; the
-        # barrier before every stage makes that safe.
+        # barrier before every stage makes that safe. Each problem has its own copy of the
+        # slots, interleaved: slot x of problem p is ``s[x * P + p]`` (``sp = s + p``). A group's
+        # W lanes read W consecutive slots of P problems, 32 consecutive words, so no bank
+        # conflicts at any P; at P = 32 it is the split tier's ``s[slot * 32 + lane]``.
+        # Contiguous per-problem regions measured 5x slower at P = 32 (bank conflicts).
+        def at(e) -> str:
+            return f"sp[{e}]" if P == 1 else f"sp[({e}) * {P}]"
         slots: dict[int, int] = {}
         n = 0
         # PROTOTYPE(uniform): inputs are staged into scratch so every operand is one kind of load;
@@ -276,7 +297,8 @@ class _Emitter:
         # Every per-lane table is packed into one int array (operand / result slots) and one
         # constant array, copied into scratch at entry: a group's index load is then a shared
         # load, not a dependent global load (global tables measured ~9x slower than thread).
-        # PROTOTYPE(uniform): the copy costs scratch and a prologue per problem; encode indices
+        # With W = 1 the lane index is a constant, so no table is made: indices are literals.
+        # PROTOTYPE(uniform): the copy costs scratch and a prologue per call; encode indices
         # in the instruction stream (or compute them from lane) in a real design.
         itab: list[int] = []
         ctab: list[float] = []
@@ -295,8 +317,8 @@ class _Emitter:
                 continue
             ids = [in_slot[g._memo[("in", nm, i)]] for i in range(length)]
             assert ids == list(range(ids[0], ids[0] + length))  # inputs were given consecutive slots
-            body.append(f"        for (int i = threadIdx.x; i < {length}; i += {threads}) "
-                        f"s[{ids[0]} + i] = {nm}[i];")
+            # each problem's lanes stage that problem's inputs (every warp: identical writes)
+            body.append(f"        for (int i = sub; i < {length}; i += {W}) {at(f'{ids[0]} + i')} = {nm}[i];")
         # The prologue (tables, inputs) is copied by every thread of the block, so all warps
         # must pass a block barrier before stage 1 reads any of it.
         body.append(f"        {block_bar}")
@@ -357,7 +379,7 @@ class _Emitter:
             for r, groups in sorted(by_warp.items()):
                 if warps > 1:
                     body.append(f"        case {r}:\n        {{")
-                self._uniform_groups(groups, where, alloc, live, slots, ints, consts, body)
+                self._uniform_groups(groups, W, at, where, alloc, live, slots, ints, consts, body)
                 if warps > 1:
                     body.append("        }\n        break;")
             if warps > 1:
@@ -367,29 +389,31 @@ class _Emitter:
             src = []
             for i, x in enumerate(int(x) for x in ids):
                 if g.op[x] == "const":
-                    body.append(f"        if (threadIdx.x == 0) {nm}[{i} * ys] = {literal(g.value[x])};")
+                    body.append(f"        if (sub == 0) {nm}[{i} * ys] = {literal(g.value[x])};")
                     src.append(-1)
                 else:
                     src.append(where(x))
             off = ints(src)
-            body.append(f"        for (int i = threadIdx.x; i < {len(ids)}; i += {threads}) "
-                        f"if (it[{off} + i] >= 0) {nm}[i * ys] = s[it[{off} + i]];")
+            body.append(f"        for (int i = sub; i < {len(ids)}; i += {W}) "
+                        f"if (it[{off} + i] >= 0) {nm}[i * ys] = {at(f'it[{off} + i]')};")
         m, k = len(ctab), len(itab)
         head = [
             "        const int lane = threadIdx.x & 31;",
-            f"        T* cv = s + {n};",
+            f"        const int sub = lane & {W - 1};  // lane within this problem's group of {W}",
+            f"        T* sp = s + lane / {W};  // this problem's slots, interleaved by {P}",
+            f"        T* cv = s + {P * max(n, 1)};",
             f"        int* it = reinterpret_cast<int*>(cv + {m});  // {k} ints, reserved as {k} T",
-            f"        for (int i = threadIdx.x; i < {m}; i += {threads}) cv[i] = T({name}_u_ctab[i]);",
-            f"        for (int i = threadIdx.x; i < {k}; i += {threads}) it[i] = {name}_u_itab[i];",
+            f"        for (int i = {tid}; i < {m}; i += {threads}) cv[i] = T({pre}_ctab[i]);",
+            f"        for (int i = {tid}; i < {k}; i += {threads}) it[i] = {pre}_itab[i];",
         ]
-        tables = _table("int", f"{name}_u_itab", itab) + _table("double", f"{name}_u_ctab", ctab)
+        tables = _table("int", f"{pre}_itab", itab) + _table("double", f"{pre}_ctab", ctab)
         # PROTOTYPE(uniform): no __noinline__ stage split over the statement budget (the ptxas
         # guard the other tiers have); validate every build numerically until it is added.
-        fn = (f"    template <class T>\n    __device__ __forceinline__ void {name}_uniform("
+        fn = (f"    template <class T>\n    __device__ __forceinline__ void {name}_{tier}("
               f"{self.params}, T* __restrict__ s, int ys = 1)\n    {{\n" + "\n".join(head + body) + "\n    }\n")
-        return tables + fn, n + m + k
+        return tables + fn, P * max(n, 1) + m + k
 
-    def _uniform_groups(self, groups, where, alloc, live, slots, ints, consts, body):
+    def _uniform_groups(self, groups, W, at, where, alloc, live, slots, ints, consts, body):
         """One warp's groups of one stage, each one lane-uniform statement (see ``uniform``)."""
         for members in groups:
             members = _order(members, where)
@@ -399,26 +423,35 @@ class _Emitter:
             for i, (x, _) in enumerate(members):
                 slots[x] = base + i
             leaves = [_leaves(t) for _, t in members]
-            names = []
+            cols = []  # per operand: (kind, values over members)
             for j in range(len(leaves[0])):
                 kind = leaves[0][j][0]
-                vals = [lv[j][1] if kind == "c" else where(lv[j][1]) for lv in leaves]
+                cols.append((kind, [lv[j][1] if kind == "c" else where(lv[j][1]) for lv in leaves]))
+            if W == 1:
+                # One lane per problem: member c is a constant, so every index and constant is a
+                # literal and the group is ``count`` plain statements (the split tier's code).
+                for c in range(count):
+                    names = [literal(v[c]) if kind == "c" else at(v[c]) for kind, v in cols]
+                    body.append(f"        {at(base + c)} = {_render(members[0][1], iter(names))};")
+                continue
+            names = []
+            for kind, vals in cols:
                 stride = _affine(vals)
                 if kind == "c" and stride == 0:
                     names.append(literal(vals[0]))  # same constant in every lane: an immediate
                 elif kind == "c":  # converted to T once in the prologue, as T(literal) would be
                     names.append(f"cv[{consts(vals)} + i]")
                 elif stride is not None:
-                    names.append(f"s[{_lin(vals[0], stride)}]")
+                    names.append(at(_lin(vals[0], stride)))
                 else:
-                    names.append(f"s[it[{ints(vals)} + i]]")
+                    names.append(at(f"it[{ints(vals)} + i]"))
             # Straight-line, no loop or branch: a stage is one basic block, so ptxas can
             # interleave its independent groups and hide one group's latency behind another's.
             # Lanes past the group recompute its last member and write the same value to the
             # same slot (the split tier's trick for a partial batch), so the result is unchanged.
-            for c in range(0, count, 32):
-                body.append(f"        {{ const int i = min(lane + {c}, {count - 1}); "
-                            f"s[{_lin(base, 1)}] = {_render(members[0][1], iter(names))}; }}")
+            for c in range(0, count, W):
+                body.append(f"        {{ const int i = min(sub + {c}, {count - 1}); "
+                            f"{at(_lin(base, 1))} = {_render(members[0][1], iter(names))}; }}")
 
 
 _COMMUTATIVE = {"add", "mul", "max", "min"}
@@ -486,7 +519,7 @@ def _table(ctype: str, name: str, vals) -> str:
 
 
 def smem(sc: sched_mod.Schedule, tier: str) -> int:
-    """Scratch, in elements of T: per warp (warp), per block (block, split)."""
+    """Scratch of a ``cooperative`` schedule, in elements of T (``tier="split"``: 32 problems)."""
     # dataflow adds one progress counter per rank (an int, reserved as one T) after the slots
     return max(sc.n_slots, 1) * (32 if tier == "split" else 1) + (sc.units if sc.dataflow else 0)
 
@@ -499,20 +532,26 @@ def emit(program: Program, variants: list[Variant], budget: int = BUDGET) -> str
         if v.tier == "thread":
             out.append(em.thread())
             continue
-        sc = sched_mod.build(program, v.units, v.threshold, v.narrow, v.placement, v.sync)
-        if v.tier == "uniform":  # PROTOTYPE(uniform)
-            code, n_slots = em.uniform(sc)
-            out.append(code)
-            consts.append(f"    constexpr int {program.name}_uniform_smem = {max(n_slots, 1)};")
-            consts.append(f"    constexpr int {program.name}_uniform_threads = {32 * v.units};")
-            consts.append(f"    constexpr int {program.name}_uniform_stages = {sc.stages};")
-            continue
-        out.append(em.cooperative(sc, v.tier))
-        consts.append(f"    constexpr int {program.name}_{v.tier}_smem = {smem(sc, v.tier)};")
+        if v.tier not in ("warp", "block"):
+            raise ValueError(f"tier {v.tier!r}: one of {TIERS}")
+        warps = 1 if v.tier == "warp" else v.units // 32
+        if v.tier == "block" and (v.units % 32 or warps not in WARPS):
+            raise ValueError(f"block tier: units={v.units} threads; k = units / 32 must be one of {WARPS}")
+        if v.problems not in PROBLEMS:
+            raise ValueError(f"problems={v.problems}: one of {PROBLEMS}")
+        if v.sync != "block" and (v.problems != 32 or warps == 1):
+            raise ValueError(f"sync={v.sync!r} needs P = 32 and several warps (block tier)")
+        if v.problems == 32:  # one problem per lane: the per-lane trace, with CSE and registers
+            sc = sched_mod.build(program, warps, v.threshold, placement=v.placement, sync=v.sync)
+            code, n_slots = em.cooperative(sc, "split", f"{program.name}_{v.tier}"), smem(sc, "split")
+        else:
+            sc = sched_mod.build(program, warps, v.threshold, placement=v.placement)
+            code, n_slots = em.uniform(sc, v.tier, v.problems)
+        out.append(code)
+        consts.append(f"    constexpr int {program.name}_{v.tier}_smem = {max(n_slots, 1)};")
+        consts.append(f"    constexpr int {program.name}_{v.tier}_problems = {v.problems};")
         if v.tier == "block":
             consts.append(f"    constexpr int {program.name}_block_threads = {v.units};")
-        if v.tier == "split":
-            consts.append(f"    constexpr int {program.name}_split_warps = {v.units};")
         consts.append(f"    constexpr int {program.name}_{v.tier}_stages = {sc.stages};")
     sizes = [f"    constexpr int {program.name}_{n}_size = {len(ids)};" for n, ids in program.outputs]
     return "\n".join(out) + "\n" + "\n".join(consts + sizes) + "\n"
@@ -554,7 +593,7 @@ namespace crocket::robots::{ns}
 """
 
 
-DEFAULT_VARIANTS = (Variant("thread"), Variant("split", 8), Variant("warp", 32), Variant("block", 128))
+DEFAULT_VARIANTS = (Variant("thread"), Variant("warp", 32), Variant("block", 128))
 
 
 def kinematics(robot: Robot, frames, end_effector: str | None, budget: int = BUDGET) -> str:

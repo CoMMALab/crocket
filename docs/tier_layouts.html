@@ -134,13 +134,18 @@ tr:last-child td { border-bottom: none; }
   <p class="lede">traj_collision on Panda, RTX A5000, microseconds per launch, outputs bit-identical to the thread tier. Best at each batch size marked.</p>
   <div class="tablebox">
     <table>
-      <thead><tr><th>Layout</th><th>k</th><th>P</th><th>B = 1</th><th>B = 64</th><th>B = 1024</th></tr></thead>
+      <thead><tr><th>Layout</th><th>k</th><th>P</th><th>B = 1</th><th>B = 8</th><th>B = 64</th><th>B = 1024</th><th>B = 8192</th></tr></thead>
       <tbody>
-        <tr><td>thread</td><td class="num">–</td><td class="num">–</td><td class="num">164.0</td><td class="num">174.4</td><td class="num">182.7</td></tr>
-        <tr><td>split</td><td class="num">8</td><td class="num">32</td><td class="num">109.4</td><td class="num">119.9</td><td class="num best">132.6</td></tr>
-        <tr><td>warp</td><td class="num">1</td><td class="num">1</td><td class="num">148.3</td><td class="num">157.3</td><td class="num">355.6</td></tr>
-        <tr><td>block, element placement</td><td class="num">4</td><td class="num">1</td><td class="num">94.7</td><td class="num">105.0</td><td class="num">551.2</td></tr>
-        <tr><td>block, task placement</td><td class="num">8</td><td class="num">1</td><td class="num best">89.1</td><td class="num best">97.6</td><td class="num">594.8</td></tr>
+        <tr><td>thread</td><td class="num">–</td><td class="num">–</td><td class="num">163.9</td><td class="num">175.2</td><td class="num">174.5</td><td class="num">183.0</td><td class="num best">242.2</td></tr>
+        <tr><td>warp</td><td class="num">1</td><td class="num">1</td><td class="num">149.6</td><td class="num">158.7</td><td class="num">157.8</td><td class="num">348.0</td><td class="num">2481.1</td></tr>
+        <tr><td>warp</td><td class="num">1</td><td class="num">4</td><td class="num">223.1</td><td class="num">197.2</td><td class="num">248.2</td><td class="num">298.4</td><td class="num">1487.7</td></tr>
+        <tr><td>warp</td><td class="num">1</td><td class="num">32</td><td class="num">293.0</td><td class="num">301.8</td><td class="num">361.4</td><td class="num">454.4</td><td class="num">564.7</td></tr>
+        <tr><td>block256, task placement</td><td class="num">8</td><td class="num">1</td><td class="num best">82.8</td><td class="num best">77.8</td><td class="num">90.8</td><td class="num">583.8</td><td class="num">4487.6</td></tr>
+        <tr><td>block256, task placement</td><td class="num">8</td><td class="num">2</td><td class="num">90.3</td><td class="num">86.9</td><td class="num">94.3</td><td class="num">316.9</td><td class="num">2384.8</td></tr>
+        <tr><td>block256, task placement</td><td class="num">8</td><td class="num">4</td><td class="num">94.2</td><td class="num">90.9</td><td class="num best">85.9</td><td class="num">204.8</td><td class="num">1234.7</td></tr>
+        <tr><td>block256, task placement</td><td class="num">8</td><td class="num">8</td><td class="num">98.6</td><td class="num">98.3</td><td class="num">91.5</td><td class="num">221.4</td><td class="num">1771.5</td></tr>
+        <tr><td>block256, task placement</td><td class="num">8</td><td class="num">16</td><td class="num">122.8</td><td class="num">123.6</td><td class="num">120.2</td><td class="num">140.0</td><td class="num">1104.1</td></tr>
+        <tr><td>block256, task placement (formerly split)</td><td class="num">8</td><td class="num">32</td><td class="num">109.3</td><td class="num">113.3</td><td class="num">121.6</td><td class="num best">125.4</td><td class="num">402.5</td></tr>
       </tbody>
     </table>
   </div>
@@ -149,14 +154,18 @@ tr:last-child td { border-bottom: none; }
 <script>
 const KS = [1, 2, 4, 8], PS = [1, 2, 4, 8, 16, 32];
 const MEASURED = {
-  "1,1": "warp tier: traj_collision panda 148 µs at B = 1, 157 at B = 64, 356 at B = 1024.",
-  "4,1": "block tier, element placement: 94.7 µs at B = 1, 105 at B = 64, 551 at B = 1024.",
-  "8,1": "block tier, task placement: 89.1 µs at B = 1 (fastest measured), 97.6 at B = 64, 595 at B = 1024.",
-  "8,32": "split: 109 µs at B = 1, 120 at B = 64, 133 at B = 1024 (fastest measured there).",
-  "4,32": "split: 128 µs at B = 1, 144 at B = 64, 142 at B = 1024.",
+  "1,1": "warp, P = 1: traj_collision panda 150 µs at B = 1, 158 at B = 64, 348 at B = 1024.",
+  "1,4": "warp, P = 4: 223 µs at B = 1, 248 at B = 64, 298 at B = 1024.",
+  "1,32": "warp, P = 32: 293 µs at B = 1, 361 at B = 64, 454 at B = 1024, 565 at B = 8192.",
+  "8,1": "block256, P = 1, task placement: 82.8 µs at B = 1 and 77.8 at B = 8 (fastest there), 91 at B = 64, 584 at B = 1024.",
+  "8,2": "block256, P = 2: 90.3 µs at B = 1, 94.3 at B = 64, 317 at B = 1024.",
+  "8,4": "block256, P = 4: 94.2 µs at B = 1, 85.9 at B = 64 (fastest there), 205 at B = 1024.",
+  "8,8": "block256, P = 8: 98.6 µs at B = 1, 91.5 at B = 64, 221 at B = 1024.",
+  "8,16": "block256, P = 16: 123 µs at B = 1, 120 at B = 64, 140 at B = 1024.",
+  "8,32": "block256, P = 32 (formerly split): 109 µs at B = 1, 122 at B = 64, 125 at B = 1024 (fastest there), 403 at B = 8192.",
 };
 const PRESETS = [
-  ["thread", null], ["warp", [1, 1]], ["block", [8, 1]], ["block, P = 4 (proposed)", [4, 4]], ["split", [8, 32]],
+  ["thread", null], ["warp", [1, 1]], ["block", [8, 1]], ["block, P = 4", [8, 4]], ["block, P = 32", [8, 32]],
 ];
 const state = { k: 8, P: 1, g: 8, thread: false };
 
@@ -187,7 +196,7 @@ function hue(p, n) { return Math.round(205 + p * 360 / Math.max(n, 1)) % 360; }
 function tierName() {
   if (state.thread) return "thread";
   const { k, P } = state;
-  if (P === 32 && k > 1) return "split (block, P = 32)";
+  if (P === 32 && k > 1) return "block, P = 32 (formerly split)";
   if (k === 1) return P === 1 ? "warp" : `warp, P = ${P}`;
   return P === 1 ? "block" : `block, P = ${P}`;
 }
@@ -221,7 +230,6 @@ function render() {
     pills.append(pill(`${per} problem${per > 1 ? "s" : ""} per block`));
     if (P === 1) pills.append(pill("GRiM IK compatible", "ok"));
     else pills.append(pill("needs lockstep solver loops for GRiM IK", "warn"));
-    if (P > 1 && P < 32) pills.append(pill("proposed, not built", "new"));
   }
 
   const st = document.getElementById("stats"); st.replaceChildren(

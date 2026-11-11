@@ -66,16 +66,23 @@ Layouts explained interactively in `docs/tier_layouts.html` (open in a browser).
   89.5, fetch 244 / 139 / 97.1; rnea_derivatives baxter 197 / 137 / 117, panda 76 / 82 / 71;
   RNEA panda 8.3 / 12.8 / 20.8, baxter 17.7 / 20.8 / 34.6. So large traces at small batch gain
   1.7-2.5x over thread; RNEA stays thread's. Task placement beat element placement in every
-  step 3 case. Next: add it to `tune.candidates`, then the GRiM migration (tier renames:
-  split -> block with lanes = problems, uniform -> block with lanes = elements, k = 1 is warp).
-  Cleanup once step 3 lands, tagged `REDESIGN(ranks)` and `PROTOTYPE(uniform)` in code: delete
-  the lane-switch `warp`/`block` codegen (`cuda._Emitter.cooperative`), `Variant.narrow`
-  (`schedule.build`), and the `uniform` tier, or fold what step 3 reuses from it. Move GRiM's IK
-  callers of `_warp`/`_block` (`ik_crocket/ck.cuh`, `region_ik/brownian_ik.cu`) to the new tiers.
+  step 3 case.
+  Step 4 (done in crocket, GRiM pointer not yet bumped): one design, `warp` / `block` with P
+  problems per warp (`Variant.problems`, 1-32). P = 1 is the step 3 emitter (GLASS's contract,
+  GRiM IK's calls unchanged); P = 32 is the former `split` tier's per-lane trace (the `split`
+  tier is gone: `Variant("block", 32 * k, problems=32)`); P in between packs problems per warp,
+  slots interleaved `s[slot * P + problem]` (contiguous regions were 5x slower at P = 32 from bank
+  conflicts). traj_collision panda, block256, us: P=1 82.8 at B=1 and 77.8 at B=8; P=4 85.9 at
+  B=64; P=32 125 at B=1024; thread 242 at B=8192: each batch range has its own winner, all
+  bit-identical. Removed: the lane-switch warp / block codegen, `Variant.narrow`. Still open:
+  bump GRiM's crocket pointer and re-run its IK / dynamics suites (it calls `_warp` / `_block`
+  at P = 1 with `_warp_smem` / `_block_smem`, unchanged names); measure GRiM IK, which calls the
+  geometry once per iteration and now pays the table copy each call; `sync="named"`
+  (`REDESIGN(ranks)`) is untuned and can go.
 
-## Lane-uniform tier (prototype)
+## Lane-uniform warp / block tiers (P < 32)
 
-- **`uniform` is now rank model step 3 (see above); its prototype shortcuts remain.** History of
+- **The P < 32 path of `warp` / `block` keeps prototype shortcuts.** History of
   the single-warp version (RNEA panda B=1): index tables in global memory 76 us; tables copied
   to scratch 54; own affine slot layout 38; straight-line stages 32; shared-typed harness
   scratch 21. 40-60% of operand columns stay non-affine (folding gives related elements
@@ -86,7 +93,7 @@ Layouts explained interactively in `docs/tier_layouts.html` (open in a browser).
   __device__` globals in the header, copied into scratch per problem; no `__noinline__`
   budget split; not yet in `tune.candidates`, `DEFAULT_VARIANTS` or `parallel_analysis`.
 
-- **`split` stage functions lose the shared address space.** Over the statement budget,
+- **P = 32 stage functions lose the shared address space.** Over the statement budget,
   cooperative stages are `__noinline__` and take scratch as a generic `T*`, so loads are generic,
   not `LDS`. With the stages inlined (budget 10^9), split4 is 4-7% faster and still
   bit-identical (traj_collision panda/fetch, rnea_derivatives baxter). The noinline split

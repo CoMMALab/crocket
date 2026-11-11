@@ -13,7 +13,7 @@ parallel, following the kinematic tree. Parallelism tiers are modeled after GLAS
 | frontend | `trace.py`, `algorithms.py` | algorithms are plain Python over traced `Scalar` / `Vec3` / `Motion` / `Force` / `Inertia` (Featherstone's rigid / articulated forms) / `SE3`; running one records the IR, and topology loops unroll |
 | IR | `ir.py` | SSA graph at two levels: GLASS-named spatial ops tagged with joint / depth / subtree / pass, each carrying its folded scalar expansion (constant folding, sparsity, CSE at both levels, dead-output elimination) and a float64 interpreter |
 | scheduler | `schedule.py` | coarsen (scalarise cheap single-consumer nodes), level by tree, longest-first lane assignment, minimal syncs, shared-memory slots by interval colouring |
-| backend | `cuda.py` | one header per robot: `<alg>_thread / _split / _warp / _block`, templated on `T`, `y[i * ys]` outputs, `__noinline__` stage functions over the statement budget |
+| backend | `cuda.py` | one header per robot: `<alg>_thread / _warp / _block`, templated on `T`, `y[i * ys]` outputs; warps are ranks, P problems per warp (`docs/tier_layouts.html`) |
 | tuning | `tune.py`, `harness.py` | compile, validate and time candidate layouts; the winner is cached per robot |
 
 Algorithms: `frame_poses`, `frame_jacobian` (LOCAL_WORLD_ALIGNED), `rnea`, `crba`, `aba`,
@@ -54,9 +54,10 @@ src = crocket.generate(robot, {"rnea": {}}, variants={"rnea": [crocket.Variant("
 ```cpp
 namespace r = crocket::robots::panda;
 r::rnea_thread<float>(q, qd, qdd, tau, ys);                // one problem per thread
-r::rnea_split<float>(q, qd, qdd, tau, smem, ys);           // 32 per block, warps split the stages
-r::rnea_warp<float>(q, qd, qdd, tau, smem, ys);            // one per warp; r::rnea_warp_smem per warp
-r::rnea_block<float>(q, qd, qdd, tau, smem, ys);           // one per block of r::rnea_block_threads
+r::rnea_warp<float>(q, qd, qdd, tau, smem, ys);            // r::rnea_warp_problems per warp; r::rnea_warp_smem per warp
+r::rnea_block<float>(q, qd, qdd, tau, smem, ys);           // r::rnea_block_problems per block of r::rnea_block_threads
+// every thread passes its own problem's pointers: with P problems per warp, lane l serves
+// problem l / (32 / P)
 ```
 
 The cooperative tiers end without a barrier. Sync before you read another lane's outputs or reuse

@@ -40,9 +40,17 @@ GRiM uses it for `traced=True` kinematics and for `grim.motion.dynamics`.
 4. **Robot-specific header**. `crocket.generate(robot, {...})` emits one header per robot,
    `namespace crocket::robots::<name>`, with these functions:
    - `<alg>_thread`: one problem per thread.
-   - `<alg>_split`: 32 problems per block, with warps splitting the stages.
-   - `<alg>_warp`: one problem per warp.
-   - `<alg>_block`: one problem per block.
+   - `<alg>_warp`: one warp (one rank) holding P problems (`Variant.problems`).
+   - `<alg>_block`: `units / 32` warps (the ranks) holding P problems.
+
+   Warps are the ranks: only they have their own instruction stream, so the schedule gives
+   different warps different tasks and syncs them only where a value crosses warps. Lanes always
+   run the same instruction: each warp's 32 lanes split into P groups of 32 / P, a group working
+   on one problem's elements as lane-uniform shape groups. P = 1 is GLASS's contract (one problem
+   per warp / block; GRiM's IK); P = 32 puts one problem on each lane (the former `split` tier,
+   emitted as the per-lane trace with CSE in registers); P in between packs a few problems per
+   warp. Never give lanes of one warp different code: a `switch (lane)` serialises (the old
+   warp / block tiers ran 10x slower than thread). `docs/tier_layouts.html` draws the layouts.
 
    The functions are templated on `T` and write outputs as `y[i * ys]`. The cooperative tiers
    end without a barrier. `tune.py` times candidate layouts and caches the winner under
@@ -178,15 +186,16 @@ authors' numbers as if they came from our runs.
   --gpu-proof-enable` on a clean tree). Any change to `python/crocket`, `tests`, `resources` or
   `pyproject.toml` invalidates it. After that, re-record it, bump GRiM's pointer, and re-record
   GRiM's receipt.
-- **Cooperative variants need `units`.** `Variant("warp")` defaults to `units=1`, which runs
-  the whole trace on lane 0. Use `Variant("warp", units=32)` and `Variant("block", units=N)`.
-- **ptxas also miscompiles the cooperative tiers.** CUDA 13.3 reused uniform register UR4 across
-  the per-lane arms of a block stage's `switch (threadIdx.x)`: one arm materialised a constant in
-  it while another stored through it as a shared-memory base, giving an illegal address
-  (GRiM's g1-with-collision `ik_geometry` block build, float only; `-Xptxas -O1` did not help, and
-  the `__noinline__` stage split does not prevent it). An illegal shared address of the form
-  `0x4...` (a float's bits) inside a `_block_s<k>` stage points here. Run the block tier under
-  `compute-sanitizer` when adding a large traced algorithm.
+- **Block `units` are threads.** `Variant("block", units=N)` takes N threads, a multiple of 32
+  (N / 32 warps); the warp tier is always one warp. `problems` is P (1, 2, 4, 8, 16, 32);
+  `placement` and `sync` apply to the ranks (`sync` other than "block" needs P = 32 and several
+  warps).
+- **ptxas also miscompiled the old cooperative tiers.** CUDA 13.3 reused uniform register UR4
+  across the per-lane arms of the old block stage's `switch (threadIdx.x)` (GRiM's
+  g1-with-collision `ik_geometry` block build, float only). The current warp / block tiers have
+  no per-lane `switch`, but the P < 32 path has no `__noinline__` budget split yet
+  (`PROTOTYPE(uniform)`): run a large traced algorithm under `compute-sanitizer` and check it
+  numerically.
 - **Known gaps.** There is no floating-base humanoid in the tests. Derivatives are checked only
   on panda and fr3, against finite differences. fr3 ABA is excluded with no stated reason. ABA
   and derivatives are unsupported on mimic joints, so use `fd_crba`.

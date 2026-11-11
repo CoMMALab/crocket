@@ -24,7 +24,13 @@ ALGORITHMS = ["rnea", "crba", "aba", "rnea_derivatives", "frame_poses", "frame_j
               "sphere_collision", "ik_lm_step"]
 CASES = ([(r, a) for r in SMALL for a in ALGORITHMS if not (r == "fr3" and a == "aba")]
          + [("grid_g1", a) for a in ("rnea", "crba", "frame_jacobian", "sphere_collision", "ik_lm_step")])
-COOPERATIVE = [cuda.Variant("split", 8), cuda.Variant("warp", 32), cuda.Variant("block", 128)]
+COOPERATIVE = [cuda.Variant("block", 256, problems=32), cuda.Variant("warp", 32), cuda.Variant("block", 128)]
+
+
+def _each(p, flags=("-O3",), dtype=np.float32, **kw):
+    """The thread tier and each cooperative variant, one header each: two block variants share
+    the names ``<alg>_block`` / ``<alg>_block_smem``, so they cannot share a header."""
+    return [harness.build([(p, v)], dtype, flags=flags, **kw) for v in [cuda.Variant("thread")] + COOPERATIVE]
 
 
 def _trace(robot_name, name):
@@ -36,36 +42,38 @@ def _trace(robot_name, name):
 @pytest.mark.parametrize("robot_name,name", CASES)
 def test_tiers_match_interpreter(robot_name, name, dtype):
     p = _trace(robot_name, name)
-    harness.validate(harness.build([(p, cuda.Variant("thread"))] + [(p, v) for v in COOPERATIVE], dtype))
+    for b in _each(p, dtype=dtype):
+        harness.validate(b)
 
 
 @pytest.mark.parametrize("robot_name,name", CASES)
 def test_tiers_bit_identical_without_fma(robot_name, name):
     p = _trace(robot_name, name)
-    built = harness.build([(p, cuda.Variant("thread"))] + [(p, v) for v in COOPERATIVE],
-                          flags=("-O3", "-fmad=false"))
+    built = _each(p, flags=("-O3", "-fmad=false"))
     x = harness.sample_inputs(p, 97)
-    ref, _ = built.run(0, x)
-    for i in range(1, len(built.cases)):
-        got, _ = built.run(i, x)
+    ref, _ = built[0].run(0, x)
+    for b in built[1:]:
+        got, _ = b.run(0, x)
         for k in ref:
-            np.testing.assert_array_equal(got[k], ref[k], err_msg=f"{built.cases[i][1]} {k}")
+            np.testing.assert_array_equal(got[k], ref[k], err_msg=f"{b.cases[0][1]} {k}")
 
 
 @pytest.mark.parametrize("robot_name,name", [("panda", "rnea"), ("grid_go2", "crba"), ("fr3", "rnea_derivatives")])
 def test_group_size_invariance(robot_name, name):
     p = _trace(robot_name, name)
-    variants = ([cuda.Variant("thread")] + [cuda.Variant("split", w) for w in (1, 2, 4, 8)]
-                + [cuda.Variant("warp", 32)] + [cuda.Variant("block", t) for t in (32, 64, 128, 256)]
+    variants = ([cuda.Variant("thread")]
+                # the sweep stays on k in cuda.WARPS and P in cuda.PROBLEMS
+                + [cuda.Variant("block", 32 * w, problems=32) for w in cuda.WARPS]
+                + [cuda.Variant("warp", 32, problems=P) for P in cuda.PROBLEMS]
+                + [cuda.Variant("block", 32 * w) for w in cuda.WARPS]
                 + [cuda.Variant("block", 128, threshold=t) for t in (1, 64)]
-                + [cuda.Variant("warp", 32, narrow=32), cuda.Variant("block", 64, narrow=32),
-                   cuda.Variant("split", 4, narrow=8), cuda.Variant("split", 2, placement="task"),
-                   cuda.Variant("split", 8, placement="task"),
-                   cuda.Variant("split", 4, sync="named"),
-                   cuda.Variant("split", 8, placement="task", sync="named"),
-                   cuda.Variant("split", 4, sync="dataflow"),
-                   cuda.Variant("split", 8, placement="task", sync="dataflow"),
-                   cuda.Variant("uniform", 1), cuda.Variant("uniform", 4, placement="task")])
+                + [cuda.Variant("block", 128, placement="task", problems=P) for P in cuda.PROBLEMS[1:-1]]
+                + [cuda.Variant("block", 64, placement="task", problems=32),
+                   cuda.Variant("block", 256, placement="task", problems=32),
+                   cuda.Variant("block", 128, problems=32, sync="named"),
+                   cuda.Variant("block", 256, placement="task", problems=32, sync="named"),
+                   cuda.Variant("block", 128, problems=32, sync="dataflow"),
+                   cuda.Variant("block", 256, placement="task", problems=32, sync="dataflow")])
     # one header per variant: the scratch constants are per tier
     built = [harness.build([(p, v)], flags=("-O3", "-fmad=false")) for v in variants]
     x = harness.sample_inputs(p, 4096)
@@ -88,16 +96,15 @@ def test_large_trace_guard(robot_name, name):
     """Over the statement budget, every tier is split into __noinline__ stage functions; those
     builds must agree between ptxas -O0 and -O3."""
     p = _trace(robot_name, name)
-    cases = [(p, cuda.Variant("thread"))] + [(p, v) for v in COOPERATIVE]
-    fast = harness.build(cases, flags=("-O3", "-fmad=false"), budget=200)
-    slow = harness.build(cases, flags=("-O3", "-fmad=false", "-Xptxas=-O0"), budget=200)
-    harness.validate(fast)
+    fast = _each(p, flags=("-O3", "-fmad=false"), budget=200)
+    slow = _each(p, flags=("-O3", "-fmad=false", "-Xptxas=-O0"), budget=200)
     x = harness.sample_inputs(p, 64)
-    for i in range(len(cases)):
-        a, _ = fast.run(i, x)
-        b, _ = slow.run(i, x)
+    for f, sl in zip(fast, slow):
+        harness.validate(f)
+        a, _ = f.run(0, x)
+        b, _ = sl.run(0, x)
         for k in a:
-            np.testing.assert_array_equal(a[k], b[k], err_msg=f"{cases[i][1]} {k}")
+            np.testing.assert_array_equal(a[k], b[k], err_msg=f"{f.cases[0][1]} {k}")
 
 
 @pytest.mark.parametrize("robot_name", ["panda", "grid_g1"])
@@ -134,3 +141,19 @@ def test_register_guard_removes_spills(robot_name):
     built, budget = harness.fit(p, cuda.Variant("thread"))
     assert budget < cuda.BUDGET and built.resources[0].spill_stores == 0
     harness.validate(built)
+
+
+def test_layouts_stay_on_the_grid():
+    """k (warps) and P (problems per warp) outside cuda.WARPS / cuda.PROBLEMS are rejected, and
+    the tuner never proposes one."""
+    from crocket import tune
+
+    p = _trace("panda", "rnea")
+    for bad in (cuda.Variant("block", 96), cuda.Variant("block", 512), cuda.Variant("block", 48),
+                cuda.Variant("warp", 32, problems=3), cuda.Variant("block", 128, problems=64)):
+        with pytest.raises(ValueError):
+            cuda.emit(p, [bad])
+    for v, _ in tune.candidates(p):
+        if v.tier != "thread":
+            assert v.problems in cuda.PROBLEMS
+            assert (1 if v.tier == "warp" else v.units // 32) in cuda.WARPS

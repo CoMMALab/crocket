@@ -58,11 +58,11 @@ def work_span(program: Program) -> tuple[int, int]:
 
 
 def analyze(program: Program, units: int, threshold: int = 8, sync_cost: float = SYNC_COST,
-            smem_cost: float = SMEM_COST, narrow: int = 0, diverge: int = 32) -> dict:
+            smem_cost: float = SMEM_COST, placement: str = "element", diverge: int = 32) -> dict:
     """All metrics for ``program`` scheduled on ``units`` lanes."""
     g = program.g
     W, D = work_span(program)
-    sc = sched_mod.build(program, units, threshold, narrow)
+    sc = sched_mod.build(program, units, threshold, placement=placement)
     t_p, t_mimd, lane_work, smem = 0.0, 0.0, 0, 0.0
     for st in range(1, sc.stages + 1):
         lanes: dict[int, list] = {}
@@ -92,7 +92,7 @@ def analyze(program: Program, units: int, threshold: int = 8, sync_cost: float =
     parts["idle"] = cost - W - sum(parts.values())
     total = cost - W
     return {
-        "units": units, "threshold": threshold, "narrow": narrow, "diverge": diverge,
+        "units": units, "threshold": threshold, "placement": placement, "diverge": diverge,
         "sync_cost": sync_cost, "smem_cost": smem_cost,
         "W": W, "D": D, "T_s": W, "T_p": t_p, "T_ideal": t_ideal, "schedule_gap": t_p / t_ideal,
         "cost": cost, "speedup": S, "efficiency": S / units, "cost_ratio": cost / W if W else 0.0,

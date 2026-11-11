@@ -50,35 +50,33 @@ def _kernel(i: int, p: Program, v: cuda.Variant, ns: str, T: str) -> str:
         body = (f"    const int b = blockIdx.x * blockDim.x + threadIdx.x;\n    if (b >= batch) return;\n"
                 f"    const {T}* x = X + (size_t)b * {stride};\n    {fn}({ins}, {outs}, batch);\n")
         launch, smem, scratch = "(batch + block - 1) / block, block", "0", "0"
-    elif v.tier == "split":
-        # 32 problems per block; lanes past the batch redo the last problem (identical writes)
-        # so every lane reaches every barrier
-        body = (f"    const int b0 = blockIdx.x * 32 + (threadIdx.x & 31);\n"
+    elif v.tier == "warp":
+        # P problems per warp, 32 / P lanes each; lanes past the batch redo the last problem
+        # (identical writes) so every lane of a started warp reaches every barrier
+        P = f"r::{p.name}_warp_problems"
+        body = (f"    const int warps = blockDim.x >> 5;\n"
+                f"    const int wg = blockIdx.x * warps + (threadIdx.x >> 5);\n"
+                f"    if (wg * {P} >= batch) return;\n"
+                f"    const int b0 = wg * {P} + (threadIdx.x & 31) / (32 / {P});\n"
                 f"    const int b = b0 < batch ? b0 : batch - 1;\n"
                 f"    extern __shared__ unsigned char raw[];\n"
-                f"    {T}* s = !SH ? G + (size_t)blockIdx.x * r::{p.name}_split_smem : ({T}*)raw;\n"
+                f"    {T}* s = (!SH ? G + (size_t)blockIdx.x * warps * r::{p.name}_warp_smem : ({T}*)raw)\n"
+                f"        + (threadIdx.x >> 5) * r::{p.name}_warp_smem;\n"
                 f"    const {T}* x = X + (size_t)b * {stride};\n    {fn}({ins}, {outs}, s, batch);\n")
-        launch = "(batch + 31) / 32, 32 * r::" + f"{p.name}_split_warps"
-        smem = f"r::{p.name}_split_smem * sizeof({T})"
-        scratch = f"(size_t)((batch + 31) / 32) * r::{p.name}_split_smem"
-    elif v.tier == "warp":
-        body = (f"    const int warps = blockDim.x >> 5;\n"
-                f"    const int b = blockIdx.x * warps + (threadIdx.x >> 5);\n    if (b >= batch) return;\n"
+        per_block = f"(block / 32) * {P}"
+        launch = f"(batch + {per_block} - 1) / ({per_block}), block"
+        smem = f"(block / 32) * r::{p.name}_warp_smem * sizeof({T})"
+        scratch = f"(size_t)((batch + {per_block} - 1) / ({per_block})) * (block / 32) * r::{p.name}_warp_smem"
+    else:  # block: P problems per block of k warps, lane / (32 / P) picks the problem
+        P = f"r::{p.name}_block_problems"
+        body = (f"    const int b0 = blockIdx.x * {P} + (threadIdx.x & 31) / (32 / {P});\n"
+                f"    const int b = b0 < batch ? b0 : batch - 1;\n"
                 f"    extern __shared__ unsigned char raw[];\n"
-                f"    {T}* s = (!SH ? G + (size_t)blockIdx.x * warps * r::{p.name}_{v.tier}_smem : ({T}*)raw)\n"
-                f"        + (threadIdx.x >> 5) * r::{p.name}_{v.tier}_smem;\n"
+                f"    {T}* s = !SH ? G + (size_t)blockIdx.x * r::{p.name}_block_smem : ({T}*)raw;\n"
                 f"    const {T}* x = X + (size_t)b * {stride};\n    {fn}({ins}, {outs}, s, batch);\n")
-        launch = "(batch + block / 32 - 1) / (block / 32), block"
-        smem = f"(block / 32) * r::{p.name}_{v.tier}_smem * sizeof({T})"
-        scratch = f"(size_t)(batch + block / 32 - 1) / (block / 32) * (block / 32) * r::{p.name}_{v.tier}_smem"
-    else:  # block, uniform (PROTOTYPE(uniform)): one problem per block
-        body = (f"    const int b = blockIdx.x;\n"
-                f"    extern __shared__ unsigned char raw[];\n"
-                f"    {T}* s = !SH ? G + (size_t)b * r::{p.name}_{v.tier}_smem : ({T}*)raw;\n"
-                f"    const {T}* x = X + (size_t)b * {stride};\n    {fn}({ins}, {outs}, s, batch);\n")
-        launch = f"batch, r::{p.name}_{v.tier}_threads"
-        smem = f"r::{p.name}_{v.tier}_smem * sizeof({T})"
-        scratch = f"(size_t)batch * r::{p.name}_{v.tier}_smem"
+        launch = f"(batch + {P} - 1) / {P}, r::{p.name}_block_threads"
+        smem = f"r::{p.name}_block_smem * sizeof({T})"
+        scratch = f"(size_t)((batch + {P} - 1) / {P}) * r::{p.name}_block_smem"
     return f"""
 // SH: scratch is shared memory. A template parameter, not `G == nullptr` at run time, so after
 // inlining the compiler knows the address space and emits shared loads, not generic ones.
