@@ -23,6 +23,8 @@ re-checked against current code.
 
 ## Cooperative tier redesign (in progress)
 
+Layouts explained interactively in `docs/tier_layouts.html` (open in a browser).
+
 - **Warps are the ranks, lanes are SIMD.** The `warp`/`block` tiers make lanes the ranks (`switch`
   on the lane), which SIMT serialises. The redesign: ranks are warps (only they have their own
   instruction stream), and lanes inside a warp do the same work, either on different problems
