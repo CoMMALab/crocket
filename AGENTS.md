@@ -136,6 +136,31 @@ workload needs robot math, write a new algorithm for it. Do not wrap an existing
   interpreter check (`test_unsplit_sphere_collision`). The split guards against ptxas
   miscompiles and can cost 2-3x on large traces.
 
+## Benchmarking against other libraries
+
+Baselines are cloned at pinned commits by `benchmarks/external/clone.sh` (gitignored). To add one:
+
+1. **Calibrate first.** Before writing any harness code, run the library's own benchmark or example
+   unmodified, in its own pinned environment if it needs one. Compare the result to what the
+   authors claim. If it doesn't match, explain the difference (hardware, versions, precision)
+   before going further. That number is the reference that the harness port must reproduce.
+2. **Import, don't reimplement.** Call the solver from the package itself (its solver class, its
+   own config builder; for example, cuRobo's `create_ik_config` is imported from its benchmark
+   script). Copy code only when the library offers no entry point, and then copy it line for line
+   from a named file at the pinned commit. A reimplementation can drift from the original without
+   anyone noticing, and the drift shows up as a fake speedup or slowdown.
+3. **Check the port against step 1.** Run the harness version on the calibration problem. It must
+   reproduce the step 1 time (and accuracy) before you change anything else.
+4. **Then align the problem to ours.** Use the same robots and URDFs, end effector, targets,
+   batch sizes, joint limits, precision, warm-up and timer, and grade every method with the same
+   oracle (Pinocchio, URDF limits). The library keeps its own algorithmic choices: seeds,
+   iterations, internal precision. Record them in the method label (`tables.py`).
+5. **Write down what isn't comparable.** Different hardware (CPU vs GPU), float64 vs float32, or a
+   different problem (differential vs global IK) goes in the label or a footnote. Never leave it out.
+
+Measure every number yourself on an idle GPU (see the top-level rules), and never quote the
+authors' numbers as if they came from our runs.
+
 ## Rules
 
 - **The trace is only as good as the Python.** Tracing removes overhead. It does not find a
