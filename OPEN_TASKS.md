@@ -45,6 +45,15 @@ re-checked against current code.
   a dataflow schedule (each warp runs its tasks in dependency order, consumers wait on
   producers with `bar.arrive` (producer, non-blocking) / `bar.sync` (consumer), as an MPI
   send/recv) so a warp can run ahead; then decide whether `sync="named"` stays.
+  Step 2b (dataflow, `Variant(sync="dataflow")`): no barriers; each warp publishes "finished
+  stage s" in a shared progress counter (no wait) and spins only on the producers it reads
+  from, plus write-after-read waits where a slot is reused. Correct (bit-identical) but 1.4-2.3x
+  slower than `__syncthreads` on RNEA panda/baxter (split4 task, B=1: 13.0 -> 19.0 us). ncu
+  (panda, split4 task): barrier stalls (1.7k cycles/warp) are replaced by spin-loop and wait
+  stalls (2.1k + 1.9k): the time warps spent at barriers was dependency waiting along the joint
+  chain, not imbalance a dataflow schedule removes, and polling costs more than a barrier
+  wake. Conclusion of steps 2 and 2b: synchronization is not the cooperative tiers' cost; the
+  dependency critical path is. Both stay tagged for removal; not in `tune.candidates`.
   Cleanup once step 3 lands, tagged `REDESIGN(ranks)` and `PROTOTYPE(uniform)` in code: delete
   the lane-switch `warp`/`block` codegen (`cuda._Emitter.cooperative`), `Variant.narrow`
   (`schedule.build`), and the `uniform` tier, or fold what step 3 reuses from it. Move GRiM's IK

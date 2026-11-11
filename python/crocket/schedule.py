@@ -51,6 +51,12 @@ class Schedule:
     # stage -> (named barrier id, rank bitmask) for a barrier among some ranks only; a stage in
     # sync_before but not here is a full barrier
     partial: dict[int, tuple[int, int]] = field(default_factory=dict)
+    # sync="dataflow": no barriers. (stage, rank) -> {producer rank: stage} the rank must see
+    # finished before running that stage's items, and the (stage, rank) points that publish
+    # their progress. See build step 4.
+    dataflow: bool = False
+    waits: dict[tuple[int, int], dict[int, int]] = field(default_factory=dict)
+    publish: set[tuple[int, int]] = field(default_factory=set)
 
     def stage_items(self, stage: int) -> list[Item]:
         return [it for it in self.items if it.stage == stage]
@@ -227,15 +233,43 @@ def build(program: Program, units: int, threshold: int = 8, narrow: int = 0,
                 partial[st] = (ids[mask], mask)
             else:
                 del partial[st]
+    elif sync == "dataflow":
+        # REDESIGN(ranks): correct but measured 1.4-2.3x slower than "block" on RNEA: the
+        # barrier stalls it removes were true dependency waits (the joint chain), so warps wait
+        # on their producers about as long, and polling the counters costs more than a barrier.
+        # Each rank runs its items in stage order (one global dependency order) and never meets
+        # a barrier. A rank publishes "finished stage s" in its progress counter without waiting
+        # (an MPI send); a reader waits only on the producer of a value it reads (a receive). The
+        # waits are below: read-after-write here, write-after-read where step 5 reuses a slot.
+        # Deadlock-free: a rank waits only for earlier stages, which every rank publishes
+        # before it waits on anything later.
+        pass
     else:
-        raise ValueError(f"sync {sync!r}: 'block' or 'named'")
+        raise ValueError(f"sync {sync!r}: 'block', 'named' or 'dataflow'")
+    dataflow = sync == "dataflow"
+    waits: dict[tuple[int, int], dict[int, int]] = {}
+
+    def need(stage: int, rank: int, producer: int, upto: int):
+        if producer != rank:
+            w = waits.setdefault((stage, rank), {})
+            w[producer] = max(w.get(producer, 0), upto)
+
+    if dataflow:
+        where = {it.scalar: it for it in items}
+        for it in items:
+            for leaf in it.leaves:
+                need(it.stage, it.rank, where[leaf].rank, where[leaf].stage)
 
     # 5. slots by interval colouring; a slot frees at the first sync after its last read. Only a
     #    full barrier orders every last reader before the slot's next writer, so a partial one
     #    never frees a slot.
+    #    Under dataflow a slot frees the stage after its last read, and its next writer waits
+    #    for every other rank that read the old value to finish the stage it read it in.
     last_read = {s: max(r.stage for r in rs) for s, rs in readers.items()}
     syncs = sorted(sync_before - set(partial))
-    free_at = {s: next((b for b in syncs if b > last), stages + 1) for s, last in last_read.items()}
+    free_at = {s: (last + 1 if dataflow else next((b for b in syncs if b > last), stages + 1))
+               for s, last in last_read.items()}
+    occupant: dict[int, int] = {}  # slot -> the scalar last stored in it
     slots: dict[int, int] = {}
     busy: list[tuple[int, int]] = []  # (free stage, slot)
     free: list[int] = []
@@ -248,9 +282,26 @@ def build(program: Program, units: int, threshold: int = 8, narrow: int = 0,
         if free:
             free.sort(reverse=True)
             slot = free.pop()
+            if dataflow:
+                for r in readers[occupant[slot]]:
+                    need(it.stage, it.rank, r.rank, r.stage)
         else:
             slot, n_slots = n_slots, n_slots + 1
         slots[it.scalar] = slot
+        occupant[slot] = it.scalar
         busy.append((free_at[it.scalar], slot))
+    # A rank that already waited for producer p to reach stage s need not wait again for any
+    # stage <= s; and a rank publishes only the (stage, rank) points somebody waits for.
+    publish: set[tuple[int, int]] = set()
+    if dataflow:
+        known: dict[int, dict[int, int]] = {}
+        for key in sorted(waits, key=lambda k: (k[0], k[1])):
+            st, r = key
+            seen_r = known.setdefault(r, {})
+            w = {p: upto for p, upto in waits[key].items() if upto > seen_r.get(p, 0)}
+            seen_r.update(w)
+            waits[key] = w
+            publish |= {(upto, p) for p, upto in w.items()}
+        waits = {k: w for k, w in waits.items() if w}
     return Schedule(program, units, threshold, items, stages, sync_before, slots, n_slots, task_of,
-                    out_index, partial)
+                    out_index, partial, dataflow, waits, publish)

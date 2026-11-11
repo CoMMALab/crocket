@@ -55,7 +55,8 @@ class Variant:
     threshold: int = 8  # scalarisation threshold, see :mod:`crocket.schedule`
     narrow: int = 0  # stages of at most this many items keep tasks whole on one lane
     placement: str = "element"  # what a rank is given: "element" or "task" (schedule.build step 3)
-    sync: str = "block"  # "block": __syncthreads; "named": only the ranks that exchange (split)
+    sync: str = "block"  # "block": __syncthreads; "named": only the ranks that exchange; "dataflow":
+    #                      no barriers, ranks wait on producers' progress counters (split only)
 
 
 class _Emitter:
@@ -157,6 +158,8 @@ class _Emitter:
         barrier = {"warp": "__syncwarp();", "block": "__syncthreads();", "split": "__syncthreads();",
                    "thread": None}[mode]
 
+        assert not sc.dataflow or mode == "split", "dataflow progress counters are per warp: split only"
+        counters = f"reinterpret_cast<volatile int*>(s + {max(sc.n_slots, 1) * 32})"  # after the slots
         stages, total = [], 0
         for st in range(1, sc.stages + 1):
             by_rank: dict[int, list] = {}
@@ -171,12 +174,20 @@ class _Emitter:
                 ref = lambda a: (self.ref_base(a)  # noqa: E731
                                  or (slot.format(k=sc.slots[a]) if a in sc.task_of and a not in seen
                                      else f"t{a}"))
-                lines = [f"const T t{s} = {expr(g, s, ref)};" for s in sorted(seen)]
+                lines = []
+                if (st, r) in sc.waits:  # receive: spin until each producer published its stage
+                    lines.append(f"volatile int* D = {counters};")
+                    lines += [f"while (D[{p}] < {upto}) {{}}" for p, upto in sorted(sc.waits[st, r].items())]
+                    lines.append("__threadfence_block();")
+                lines += [f"const T t{s} = {expr(g, s, ref)};" for s in sorted(seen)]
                 for it in by_rank[r]:
                     v = ref(it.scalar) if it.task < 0 else f"t{it.scalar}"
                     if it.scalar in sc.slots:
                         lines.append(f"{slot.format(k=sc.slots[it.scalar])} = {v};")
                     lines += self.store_outputs(it.scalar, v, sc.out_index)
+                if (st, r) in sc.publish:  # send: every lane's writes, then the counter, no wait
+                    lines += ["__syncwarp();", "__threadfence_block();",
+                              f"if ((threadIdx.x & 31) == 0) {counters}[{r}] = {st};"]
                 total += len(lines)
                 body = "\n            ".join(lines)
                 cases.append(f"        case {r}:\n        {{\n            {body}\n        }}\n        break;")
@@ -201,6 +212,9 @@ class _Emitter:
                 calls.append(sync + f"        {fn}_s{st}<T>({self.args}, s, ys);\n")
             else:
                 calls.append(sync + sw)
+        if sc.dataflow:  # the counters must read 0 before any rank waits on them: one barrier
+            calls.insert(0, f"        if (threadIdx.x < {sc.units}) {counters}[threadIdx.x] = 0;\n"
+                            "        __syncthreads();\n")
         if mode == "thread":
             decl = f"        T s[{max(sc.n_slots, 1)}];\n"
             head = f"    template <class T>\n    CROCKET_HD void {fn}({self.params}, int ys = 1)\n    {{\n{decl}"
@@ -446,7 +460,8 @@ def _table(ctype: str, name: str, vals) -> str:
 
 def smem(sc: sched_mod.Schedule, tier: str) -> int:
     """Scratch, in elements of T: per warp (warp), per block (block, split)."""
-    return max(sc.n_slots, 1) * (32 if tier == "split" else 1)
+    # dataflow adds one progress counter per rank (an int, reserved as one T) after the slots
+    return max(sc.n_slots, 1) * (32 if tier == "split" else 1) + (sc.units if sc.dataflow else 0)
 
 
 def emit(program: Program, variants: list[Variant], budget: int = BUDGET) -> str:
