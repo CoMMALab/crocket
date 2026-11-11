@@ -1,0 +1,101 @@
+[
+ {
+  "method": "grim",
+  "robot": "panda",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 1.2400472000081209,
+  "tier": "block",
+  "success": 1.0,
+  "pos_mm": 0.004511579007795227,
+  "ori_rad": 4.787054564836993e-06
+ },
+ {
+  "method": "grim",
+  "robot": "panda",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 3.364224680008192,
+  "tier": "thread",
+  "success": 0.9765625,
+  "pos_mm": 0.001089972182681634,
+  "ori_rad": 2.311349302251969e-06
+ },
+ {
+  "method": "grim",
+  "robot": "panda",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 13.472000380006648,
+  "tier": "thread",
+  "success": 0.9541015625,
+  "pos_mm": 0.0013608707764187623,
+  "ori_rad": 2.7286162381712093e-06
+ },
+ {
+  "method": "grim",
+  "robot": "baxter",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 2.560387260018615,
+  "tier": "block",
+  "success": 1.0,
+  "pos_mm": 0.023652977703277223,
+  "ori_rad": 5.5062909893379604e-05
+ },
+ {
+  "method": "grim",
+  "robot": "baxter",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 7.258021239977097,
+  "tier": "thread",
+  "success": 0.9765625,
+  "pos_mm": 0.0008688040623229154,
+  "ori_rad": 1.669516620668193e-06
+ },
+ {
+  "method": "grim",
+  "robot": "baxter",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 21.014908340002876,
+  "tier": "thread",
+  "success": 0.9580078125,
+  "pos_mm": 0.0014062139906580733,
+  "ori_rad": 2.2751490545501664e-06
+ },
+ {
+  "method": "grim",
+  "robot": "g1",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 3.929045479999331,
+  "tier": "block",
+  "success": 1.0,
+  "pos_mm": 0.040561180124109315,
+  "ori_rad": 1.9092103693831217e-05
+ },
+ {
+  "method": "grim",
+  "robot": "g1",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 13.629918879996694,
+  "tier": "thread",
+  "success": 0.9921875,
+  "pos_mm": 0.032803329412849525,
+  "ori_rad": 0.00013600551939117896
+ },
+ {
+  "method": "grim",
+  "robot": "g1",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 50.56514315998356,
+  "tier": "thread",
+  "success": 0.9853515625,
+  "pos_mm": 0.03213923424496377,
+  "ori_rad": 0.00013648253393606875
+ }
+]

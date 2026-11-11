@@ -1,0 +1,101 @@
+[
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "panda",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 1.468539,
+  "tier": "mixed",
+  "success": 1.0,
+  "pos_mm": 0.0046737042879071425,
+  "ori_rad": 4.7161174695051605e-06
+ },
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "panda",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 1.479472,
+  "tier": "mixed",
+  "success": 0.9765625,
+  "pos_mm": 0.001105924709901456,
+  "ori_rad": 2.246687127834481e-06
+ },
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "panda",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 2.722377,
+  "tier": "mixed",
+  "success": 0.9541015625,
+  "pos_mm": 0.001323363883484328,
+  "ori_rad": 2.6638496217225565e-06
+ },
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "baxter",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 1.460549,
+  "tier": "mixed",
+  "success": 1.0,
+  "pos_mm": 0.023652967900195603,
+  "ori_rad": 5.5140707578123674e-05
+ },
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "baxter",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 1.469786,
+  "tier": "mixed",
+  "success": 0.9765625,
+  "pos_mm": 0.0008066725612109626,
+  "ori_rad": 1.587190658117879e-06
+ },
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "baxter",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 2.702911,
+  "tier": "mixed",
+  "success": 0.9580078125,
+  "pos_mm": 0.0013139072117734304,
+  "ori_rad": 2.2674532038910046e-06
+ },
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "g1",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 2.488024,
+  "tier": "mixed",
+  "success": 1.0,
+  "pos_mm": 0.04055861043157986,
+  "ori_rad": 1.9064566829210535e-05
+ },
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "g1",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 2.475862,
+  "tier": "mixed",
+  "success": 0.9921875,
+  "pos_mm": 0.0327917400954688,
+  "ori_rad": 0.00013606946153603083
+ },
+ {
+  "method": "crocket_ls_mixed",
+  "robot": "g1",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 4.503245,
+  "tier": "mixed",
+  "success": 0.9853515625,
+  "pos_mm": 0.032164353371440614,
+  "ori_rad": 0.0001367416935241471
+ }
+]

@@ -1,0 +1,122 @@
+[
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 1,
+  "ms": 0.0643608602695167,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "",
+  "collide": 0.0
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 128,
+  "ms": 0.045866440050303936,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "",
+  "collide": 0.25
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 1024,
+  "ms": 0.045800439547747374,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "",
+  "collide": 0.40625
+ },
+ {
+  "method": "crocket",
+  "robot": "panda",
+  "batch": 16384,
+  "ms": 0.11458660010248423,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "",
+  "collide": 0.4638671875
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 1,
+  "ms": 0.06285921903327107,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "",
+  "collide": 0.0
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 128,
+  "ms": 0.0855031399987638,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "",
+  "collide": 0.75
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 1024,
+  "ms": 0.08485251804813743,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "",
+  "collide": 0.5
+ },
+ {
+  "method": "crocket",
+  "robot": "baxter",
+  "batch": 16384,
+  "ms": 0.47119929920881987,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "",
+  "collide": 0.470703125
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 1,
+  "ms": 0.06105737993493676,
+  "agree": 1.0,
+  "boxes": 7,
+  "variant": "",
+  "collide": 0.0
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 128,
+  "ms": 0.08116284152492881,
+  "agree": 1.0,
+  "boxes": 7,
+  "variant": "",
+  "collide": 0.5
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 1024,
+  "ms": 0.0812158384360373,
+  "agree": 1.0,
+  "boxes": 7,
+  "variant": "",
+  "collide": 0.453125
+ },
+ {
+  "method": "crocket",
+  "robot": "g1",
+  "batch": 16384,
+  "ms": 0.4570819600485265,
+  "agree": 1.0,
+  "boxes": 7,
+  "variant": "",
+  "collide": 0.4560546875
+ }
+]

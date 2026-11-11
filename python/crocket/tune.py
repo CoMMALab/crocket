@@ -4,7 +4,7 @@ measurement, as GRiD's ``config/launch_configs`` does by hand.
 The cost model first rejects layouts whose shared scratch would cut residency below
 ``MIN_WARPS_PER_SM``; the remaining candidates are compiled (in parallel), validated against the
 interpreter and timed once. The winner is cached on disk under
-(robot hash, algorithm, options, batch, precision, crocket version, nvcc version).
+(robot hash, algorithm, options, batch, precision, crocket version, nvcc version, GPU architecture).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import numpy as np
 from . import __version__, cuda, harness, schedule
 from .trace import Program
 
-SMEM_PER_SM = 100 * 1024  # bytes (RTX A5000 / sm_86)
+SMEM_PER_SM = 100 * 1024  # bytes: sm_86, sm_89 and sm_120 (RTX A5000, RTX 5070); more on sm_80/90/100
 MIN_WARPS_PER_SM = 8
 
 
@@ -62,7 +62,8 @@ def _key(p: Program, batch: int, dtype, options: dict) -> str:
                    j.S.tobytes(), j.I.tobytes()) for j in robot.joints]
                  + sorted((f.name, f.parent, f.T.tobytes()) for f in robot.frames.values()))
     return hashlib.sha1("\x00".join([model, p.name, repr(sorted(options.items())), str(batch),
-                                     np.dtype(dtype).name, __version__, harness.nvcc_version()]).encode()).hexdigest()
+                                     np.dtype(dtype).name, __version__, harness.nvcc_version(),
+                                     " ".join(harness.arch_flags())]).encode()).hexdigest()
 
 
 def tune(p: Program, batch: int, dtype=np.float32, reps: int = 50, options: dict | None = None,
