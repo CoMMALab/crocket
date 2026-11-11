@@ -56,30 +56,33 @@ def _kernel(i: int, p: Program, v: cuda.Variant, ns: str, T: str) -> str:
         body = (f"    const int b0 = blockIdx.x * 32 + (threadIdx.x & 31);\n"
                 f"    const int b = b0 < batch ? b0 : batch - 1;\n"
                 f"    extern __shared__ unsigned char raw[];\n"
-                f"    {T}* s = G ? G + (size_t)blockIdx.x * r::{p.name}_split_smem : ({T}*)raw;\n"
+                f"    {T}* s = !SH ? G + (size_t)blockIdx.x * r::{p.name}_split_smem : ({T}*)raw;\n"
                 f"    const {T}* x = X + (size_t)b * {stride};\n    {fn}({ins}, {outs}, s, batch);\n")
         launch = "(batch + 31) / 32, 32 * r::" + f"{p.name}_split_warps"
         smem = f"r::{p.name}_split_smem * sizeof({T})"
         scratch = f"(size_t)((batch + 31) / 32) * r::{p.name}_split_smem"
-    elif v.tier == "warp":
+    elif v.tier in ("warp", "uniform"):  # PROTOTYPE(uniform): launched like warp
         body = (f"    const int warps = blockDim.x >> 5;\n"
                 f"    const int b = blockIdx.x * warps + (threadIdx.x >> 5);\n    if (b >= batch) return;\n"
                 f"    extern __shared__ unsigned char raw[];\n"
-                f"    {T}* s = (G ? G + (size_t)blockIdx.x * warps * r::{p.name}_warp_smem : ({T}*)raw)\n"
-                f"        + (threadIdx.x >> 5) * r::{p.name}_warp_smem;\n"
+                f"    {T}* s = (!SH ? G + (size_t)blockIdx.x * warps * r::{p.name}_{v.tier}_smem : ({T}*)raw)\n"
+                f"        + (threadIdx.x >> 5) * r::{p.name}_{v.tier}_smem;\n"
                 f"    const {T}* x = X + (size_t)b * {stride};\n    {fn}({ins}, {outs}, s, batch);\n")
         launch = "(batch + block / 32 - 1) / (block / 32), block"
-        smem = f"(block / 32) * r::{p.name}_warp_smem * sizeof({T})"
-        scratch = f"(size_t)(batch + block / 32 - 1) / (block / 32) * (block / 32) * r::{p.name}_warp_smem"
+        smem = f"(block / 32) * r::{p.name}_{v.tier}_smem * sizeof({T})"
+        scratch = f"(size_t)(batch + block / 32 - 1) / (block / 32) * (block / 32) * r::{p.name}_{v.tier}_smem"
     else:
         body = (f"    const int b = blockIdx.x;\n"
                 f"    extern __shared__ unsigned char raw[];\n"
-                f"    {T}* s = G ? G + (size_t)b * r::{p.name}_block_smem : ({T}*)raw;\n"
+                f"    {T}* s = !SH ? G + (size_t)b * r::{p.name}_block_smem : ({T}*)raw;\n"
                 f"    const {T}* x = X + (size_t)b * {stride};\n    {fn}({ins}, {outs}, s, batch);\n")
         launch = f"batch, r::{p.name}_block_threads"
         smem = f"r::{p.name}_block_smem * sizeof({T})"
         scratch = f"(size_t)batch * r::{p.name}_block_smem"
     return f"""
+// SH: scratch is shared memory. A template parameter, not `G == nullptr` at run time, so after
+// inlining the compiler knows the address space and emits shared loads, not generic ones.
+template <bool SH>
 __global__ void k{i}(const {T}* __restrict__ X, {T}* __restrict__ y, int batch, {T}* G)
 {{
 {body}}}
@@ -99,13 +102,14 @@ extern "C" float run_{i}(const {T}* X, {T}* Y, int batch, int block, int reps)
         smem = 0;
     }}
     else if (smem > 48 * 1024)
-        cudaFuncSetAttribute(k{i}, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem);
-    k{i}<<<{launch}, smem>>>(dx, dy, batch, G);
+        cudaFuncSetAttribute(k{i}<true>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem);
+    const auto kern = G ? k{i}<false> : k{i}<true>;
+    kern<<<{launch}, smem>>>(dx, dy, batch, G);
     cudaEvent_t t0, t1;
     cudaEventCreate(&t0);
     cudaEventCreate(&t1);
     cudaEventRecord(t0);
-    for (int k = 0; k < reps; ++k) k{i}<<<{launch}, smem>>>(dx, dy, batch, G);
+    for (int k = 0; k < reps; ++k) kern<<<{launch}, smem>>>(dx, dy, batch, G);
     cudaEventRecord(t1);
     cudaEventSynchronize(t1);
     float ms = 0.f;

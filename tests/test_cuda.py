@@ -59,7 +59,8 @@ def test_group_size_invariance(robot_name, name):
                 + [cuda.Variant("warp", 32)] + [cuda.Variant("block", t) for t in (32, 64, 128, 256)]
                 + [cuda.Variant("block", 128, threshold=t) for t in (1, 64)]
                 + [cuda.Variant("warp", 32, narrow=32), cuda.Variant("block", 64, narrow=32),
-                   cuda.Variant("split", 4, narrow=8)])
+                   cuda.Variant("split", 4, narrow=8),
+                   cuda.Variant("uniform", 32)])  # PROTOTYPE(uniform)
     # one header per variant: the scratch constants are per tier
     built = [harness.build([(p, v)], flags=("-O3", "-fmad=false")) for v in variants]
     x = harness.sample_inputs(p, 4096)

@@ -122,6 +122,8 @@ def build(program: Program, units: int, threshold: int = 8, narrow: int = 0) -> 
             items.append(Item(s, -1, 0, stage=1))
     stages = max(stages, 1 if items else 0)
 
+    # REDESIGN(ranks): ``narrow`` only reduces barriers around the per-lane warp/block tiers'
+    # serialised work; delete it with those tiers.
     # 3. lane assignment per stage. A wide stage spreads items longest first (LPT). A stage of at
     #    most ``narrow`` items keeps each task whole on the lane that wrote most of its leaves, so
     #    a chain of narrow stages stays on one lane and step 4 needs no barrier between them.

@@ -17,13 +17,14 @@ straight-line functions are where ptxas has silently miscompiled cricket traces 
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from . import schedule as sched_mod
 from .robot import Robot
 from .trace import ALGORITHMS, Program
 
-TIERS = ("thread", "split", "warp", "block")
+TIERS = ("thread", "split", "warp", "block", "uniform")  # PROTOTYPE(uniform): last entry
 BUDGET = 4000
 
 _INFIX = {"add": "+", "sub": "-", "mul": "*", "div": "/"}
@@ -139,6 +140,11 @@ class _Emitter:
     # ---- cooperative tiers ----------------------------------------------------------------
 
     def cooperative(self, sc: sched_mod.Schedule, mode: str) -> str:
+        # REDESIGN(ranks): "warp" and "block" switch on the LANE, so each lane runs its own case
+        # and SIMT serialises them (RNEA panda B=1: thread 8.3 us, warp 87 us). Only "split",
+        # which switches on the warp, is a sound rank model. Replace warp/block with warps as
+        # ranks (lanes = problems, or later lanes = a task's elements); GRiM's IK kernels
+        # (ik_crocket/ck.cuh, region_ik/brownian_ik.cu) call _warp/_block and move with it.
         g, name = self.g, self.p.name
         rank, slot = {
             "warp": ("threadIdx.x & 31", "s[{k}]"),
@@ -196,6 +202,241 @@ class _Emitter:
         return "".join(out) + head + "".join(calls) + "    }\n"
 
 
+    # ---- uniform tier (PROTOTYPE) ---------------------------------------------------------
+    # PROTOTYPE(uniform): an experiment, not a finished tier. Every shortcut is tagged
+    # PROTOTYPE(uniform) and listed in OPEN_TASKS.md ("Lane-uniform tier"); grep the tag to clean up.
+
+    def uniform(self, sc: sched_mod.Schedule) -> tuple[str, int]:
+        """One problem per warp, like ``warp``, but lanes run the SAME code: each stage's items are
+        grouped by expression shape and each group is one straight-line statement over lanes
+        ``i``, operands at ``s[base + stride * i]`` where the layout makes them affine and through
+        a per-item index table where it does not. ``warp`` gives every lane its own ``case``, which
+        SIMT runs one lane after another. Returns (code, scratch slots)."""
+        g, name = self.g, self.p.name
+        # Layout: the uniform tier allocates its own slots instead of the schedule's interval
+        # colouring, which scatters a value's elements. Inputs first, then each group's results
+        # in one contiguous block in member order, so operand columns come out affine in the
+        # lane (``s[base + stride * i]``) and need no table. A block is freed (first-fit, merged
+        # with free neighbours) once the last stage reading any of its members has passed; the
+        # barrier before every stage makes that safe.
+        slots: dict[int, int] = {}
+        n = 0
+        # PROTOTYPE(uniform): inputs are staged into scratch so every operand is one kind of load;
+        # a real tier would read inputs in place.
+        in_slot: dict[int, int] = {}
+        for s in range(len(g.op)):
+            if g.op[s] == "in":
+                in_slot[s], n = n, n + 1
+
+        def tree(s: int, task: int):
+            op = g.op[s]
+            if op == "const":
+                return ("c", g.value[s])
+            if op == "in" or sc.task_of.get(s, task) != task:
+                return ("v", s)  # a scalar id; its slot is looked up at emission
+            # PROTOTYPE(uniform): expands the item's DAG as a tree, so a value shared inside one
+            # item is recomputed (same value, so still bit-identical) and deep sharing could
+            # blow up. Emit shared nodes once per group instead.
+            kids = [tree(a, task) for a in g.args[s]]
+            if op in _COMMUTATIVE:  # IEEE add/mul/max/min are commutative: reordering is bit-safe
+                kids.sort(key=lambda t: repr(_shape(t)))
+            return (op, kids)
+
+        # Every per-lane table is packed into one int array (operand / result slots) and one
+        # constant array, copied into scratch at entry: a group's index load is then a shared
+        # load, not a dependent global load (global tables measured ~9x slower than thread).
+        # PROTOTYPE(uniform): the copy costs scratch and a prologue per problem; encode indices
+        # in the instruction stream (or compute them from lane) in a real design.
+        itab: list[int] = []
+        ctab: list[float] = []
+
+        def ints(vals) -> int:
+            itab.extend(int(v) for v in vals)
+            return len(itab) - len(vals)
+
+        def consts(vals) -> int:
+            ctab.extend(float(v) for v in vals)
+            return len(ctab) - len(vals)
+
+        body = []
+        for nm, length in self.p.inputs:
+            if not length:
+                continue
+            ids = [in_slot[g._memo[("in", nm, i)]] for i in range(length)]
+            assert ids == list(range(ids[0], ids[0] + length))  # inputs were given consecutive slots
+            body.append(f"        for (int i = lane; i < {length}; i += 32) s[{ids[0]} + i] = {nm}[i];")
+        # Pass 1: each stage's groups and, per scalar, the last stage that reads it.
+        stage_groups: list[list] = []
+        last_read: dict[int, float] = {int(x): math.inf for x in self.p.flat_outputs}
+        for st in range(1, sc.stages + 1):
+            groups: dict = {}
+            for it in sc.stage_items(st):
+                if it.task >= 0:
+                    t = tree(it.scalar, it.task)
+                    groups.setdefault(repr(_shape(t)), []).append((it.scalar, t))
+                    for kind, x in _leaves(t):
+                        if kind == "v":
+                            last_read[x] = max(last_read.get(x, 0), st)
+            stage_groups.append(list(groups.values()))
+
+        def where(x: int) -> int:
+            return in_slot[x] if x in in_slot else slots[x]
+
+        # Pass 2: allocate blocks (first fit over freed ranges) and emit.
+        free: list[list[int]] = []  # [start, length], sorted, coalesced
+        live: list[tuple[int, int, list[int]]] = []  # (base, count, member scalars)
+
+        def alloc(count: int) -> int:
+            nonlocal n
+            for f in free:
+                if f[1] >= count:
+                    base = f[0]
+                    f[0] += count
+                    f[1] -= count
+                    if not f[1]:
+                        free.remove(f)
+                    return base
+            base, n = n, n + count
+            return base
+
+        def release(base: int, count: int):
+            free.append([base, count])
+            free.sort()
+            merged = [free[0]]
+            for f in free[1:]:
+                if merged[-1][0] + merged[-1][1] == f[0]:
+                    merged[-1][1] += f[1]
+                else:
+                    merged.append(f)
+            free[:] = merged
+
+        for st, groups in enumerate(stage_groups, 1):
+            # PROTOTYPE(uniform): a barrier before every stage. Lanes are reassigned per group, so
+            # sync_before (which assumes the LPT ranks) does not apply; derive the real need.
+            body.append("        __syncwarp();")
+            for blk in [b_ for b_ in live if all(last_read.get(x, 0) < st for x in b_[2])]:
+                live.remove(blk)
+                release(blk[0], blk[1])
+            for members in groups:
+                members = _order(members, where)
+                count = len(members)
+                base = alloc(count)
+                live.append((base, count, [x for x, _ in members]))
+                for i, (x, _) in enumerate(members):
+                    slots[x] = base + i
+                leaves = [_leaves(t) for _, t in members]
+                names = []
+                for j in range(len(leaves[0])):
+                    kind = leaves[0][j][0]
+                    vals = [lv[j][1] if kind == "c" else where(lv[j][1]) for lv in leaves]
+                    stride = _affine(vals)
+                    if kind == "c" and stride == 0:
+                        names.append(literal(vals[0]))  # same constant in every lane: an immediate
+                    elif kind == "c":  # converted to T once in the prologue, as T(literal) would be
+                        names.append(f"cv[{consts(vals)} + i]")
+                    elif stride is not None:
+                        names.append(f"s[{_lin(vals[0], stride)}]")
+                    else:
+                        names.append(f"s[it[{ints(vals)} + i]]")
+                # Straight-line, no loop or branch: a stage is one basic block, so ptxas can
+                # interleave its independent groups and hide one group's latency behind another's.
+                # Lanes past the group recompute its last member and write the same value to the
+                # same slot (the split tier's trick for a partial batch), so the result is unchanged.
+                for c in range(0, count, 32):
+                    body.append(f"        {{ const int i = min(lane + {c}, {count - 1}); "
+                                f"s[{_lin(base, 1)}] = {_render(members[0][1], iter(names))}; }}")
+        body.append("        __syncwarp();")
+        for nm, ids in self.p.outputs:
+            src = []
+            for i, x in enumerate(int(x) for x in ids):
+                if g.op[x] == "const":
+                    body.append(f"        if (lane == 0) {nm}[{i} * ys] = {literal(g.value[x])};")
+                    src.append(-1)
+                else:
+                    src.append(where(x))
+            off = ints(src)
+            body.append(f"        for (int i = lane; i < {len(ids)}; i += 32) "
+                        f"if (it[{off} + i] >= 0) {nm}[i * ys] = s[it[{off} + i]];")
+        m, k = len(ctab), len(itab)
+        head = [
+            "        const int lane = threadIdx.x & 31;",
+            f"        T* cv = s + {n};",
+            f"        int* it = reinterpret_cast<int*>(cv + {m});  // {k} ints, reserved as {k} T",
+            f"        for (int i = lane; i < {m}; i += 32) cv[i] = T({name}_u_ctab[i]);",
+            f"        for (int i = lane; i < {k}; i += 32) it[i] = {name}_u_itab[i];",
+        ]
+        tables = _table("int", f"{name}_u_itab", itab) + _table("double", f"{name}_u_ctab", ctab)
+        # PROTOTYPE(uniform): no __noinline__ stage split over the statement budget (the ptxas
+        # guard the other tiers have); validate every build numerically until it is added.
+        fn = (f"    template <class T>\n    __device__ __forceinline__ void {name}_uniform("
+              f"{self.params}, T* __restrict__ s, int ys = 1)\n    {{\n" + "\n".join(head + body) + "\n    }\n")
+        return tables + fn, n + m + k
+
+
+_COMMUTATIVE = {"add", "mul", "max", "min"}
+
+
+def _affine(vals) -> int | None:
+    """The stride if ``vals[i] == vals[0] + stride * i``, else None (stride 0: every lane alike)."""
+    if len(vals) < 2:
+        return 0
+    d = vals[1] - vals[0]
+    return d if all(vals[i] - vals[i - 1] == d for i in range(2, len(vals))) else None
+
+
+def _lin(base: int, stride: int) -> str:
+    return str(base) if stride == 0 else f"{base} + i" if stride == 1 else f"{base} + {stride} * i"
+
+
+def _order(members, where):
+    """Members of one group in the order that makes the most operand columns affine: try sorting
+    by each operand column as the key and keep the best (ties: the original order).
+    PROTOTYPE(uniform): greedy per group; producers' orders are already fixed, so a global
+    layout (choose producer orders for their consumers) could do better."""
+    cols = list(zip(*[[where(lv[1]) for lv in _leaves(t) if lv[0] == "v"] for _, t in members]))
+
+    def score(order):
+        return sum(_affine([c[k] for k in order]) is not None for c in cols)
+    best = list(range(len(members)))
+    best_score = score(best)
+    for c in cols:
+        order = sorted(range(len(members)), key=lambda k: (c[k], k))
+        sc_ = score(order)
+        if sc_ > best_score:
+            best, best_score = order, sc_
+    return [members[k] for k in best]
+
+
+def _shape(t):
+    """An item tree with its operands abstracted: items of one shape run as one lane loop."""
+    return t[0] if t[0] in ("c", "v") else (t[0], tuple(_shape(k) for k in t[1]))
+
+
+def _leaves(t) -> list:
+    return [t] if t[0] in ("c", "v") else [lv for k in t[1] for lv in _leaves(k)]
+
+
+def _render(t, names) -> str:
+    """C for a shape tree; operands are taken from ``names`` in leaf order."""
+    if t[0] in ("c", "v"):
+        return next(names)
+    op, args = t[0], [_render(k, names) for k in t[1]]
+    if op in _INFIX:
+        return f"({args[0]} {_INFIX[op]} {args[1]})"
+    if op == "neg":
+        return f"(-{args[0]})"
+    if op == "lt":
+        return f"({args[0]} < {args[1]} ? T(1) : T(0))"
+    return f"{_CALL.get(op, op)}({', '.join(args)})"
+
+
+def _table(ctype: str, name: str, vals) -> str:
+    # PROTOTYPE(uniform): tables are `static __device__` globals in the header, so each including
+    # translation unit gets its own copy; move them into a per-robot .cu.
+    body = ", ".join(repr(float(v)) if ctype == "double" else str(int(v)) for v in vals) or "0"
+    return f"    static __device__ const {ctype} {name}[{max(len(vals), 1)}] = {{{body}}};\n"
+
+
 def smem(sc: sched_mod.Schedule, tier: str) -> int:
     """Scratch, in elements of T: per warp (warp), per block (block, split)."""
     return max(sc.n_slots, 1) * (32 if tier == "split" else 1)
@@ -210,6 +451,12 @@ def emit(program: Program, variants: list[Variant], budget: int = BUDGET) -> str
             out.append(em.thread())
             continue
         sc = sched_mod.build(program, v.units, v.threshold, v.narrow)
+        if v.tier == "uniform":  # PROTOTYPE(uniform)
+            code, n_slots = em.uniform(sc)
+            out.append(code)
+            consts.append(f"    constexpr int {program.name}_uniform_smem = {max(n_slots, 1)};")
+            consts.append(f"    constexpr int {program.name}_uniform_stages = {sc.stages};")
+            continue
         out.append(em.cooperative(sc, v.tier))
         consts.append(f"    constexpr int {program.name}_{v.tier}_smem = {smem(sc, v.tier)};")
         if v.tier == "block":
