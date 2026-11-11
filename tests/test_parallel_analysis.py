@@ -16,7 +16,7 @@ def test_bounds_and_serial_baseline():
         m = pa.analyze(p, u)
         assert m["T_p"] >= m["T_ideal"]
         assert 0 < m["efficiency"] <= 1
-        assert abs(sum(m["overhead"][k] for k in ("recomputation", "smem", "barriers", "idle"))
+        assert abs(sum(m["overhead"][k] for k in ("recomputation", "smem", "barriers", "divergence", "idle"))
                    - m["overhead"]["total"]) < 1e-6
     json.dumps(pa.report("rnea", {"panda": p, "ur5": crocket.trace(robots.robot("ur5"), "rnea")}, [4, 32]))
 

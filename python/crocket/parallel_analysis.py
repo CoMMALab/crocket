@@ -7,11 +7,13 @@ Units are folded scalar ops ("FLOPs"), the static cost model the scheduler itsel
 
 - ``T_s = W``: live scalar ops, exactly the thread tier's statements.
 - ``D``: the span, longest dependency chain in the scalar graph.
-- ``T_p``: per stage, the busiest lane's statements (as ``cuda.cooperative`` emits them: the union
-  of its items' in-lane walks, so recomputed scalarised nodes count) plus its shared-memory
-  traffic, plus ``sync_cost`` per barrier.
-- ``T_overhead = p T_p - T_s``, split into redundancy (recomputation), communication
-  (smem + barriers) and idle lanes.
+- ``T_p``: per stage, each lane's statements (as ``cuda.cooperative`` emits them: the union of its
+  items' in-lane walks, so recomputed scalarised nodes count) plus its shared-memory traffic. Lanes
+  of one warp run different ``case``s of the stage's ``switch``, which SIMT serialises, so a warp
+  costs the SUM of its lanes and the stage the max over warps; plus ``sync_cost`` per barrier.
+  ``diverge`` is the lanes per warp (32; 1 for the split tier, whose ranks are whole warps).
+- ``T_overhead = p T_p - T_s``, split into recomputation, smem, barriers, divergence (the SIMT
+  serialisation: ``p`` times the sum-vs-max difference) and idle lanes.
 
 This models latency of ONE problem. At batch >= the GPU's thread count, the thread tier already
 uses every core at E = 1, so a cooperative tier only pays off when the batch leaves cores idle.
@@ -55,19 +57,19 @@ def work_span(program: Program) -> tuple[int, int]:
     return w, int(depth.max(initial=0))
 
 
-def analyze(program: Program, units: int, threshold: int = 8,
-            sync_cost: float = SYNC_COST, smem_cost: float = SMEM_COST) -> dict:
+def analyze(program: Program, units: int, threshold: int = 8, sync_cost: float = SYNC_COST,
+            smem_cost: float = SMEM_COST, narrow: int = 0, diverge: int = 32) -> dict:
     """All metrics for ``program`` scheduled on ``units`` lanes."""
     g = program.g
     W, D = work_span(program)
-    sc = sched_mod.build(program, units, threshold)
-    t_p, lane_work, smem = 0.0, 0, 0.0
+    sc = sched_mod.build(program, units, threshold, narrow)
+    t_p, t_mimd, lane_work, smem = 0.0, 0.0, 0, 0.0
     for st in range(1, sc.stages + 1):
         lanes: dict[int, list] = {}
         for it in sc.stage_items(st):
             lanes.setdefault(it.rank, []).append(it)
-        busiest = 0.0
-        for items in lanes.values():
+        busiest, warps = 0.0, {}
+        for rank, items in lanes.items():
             seen, leaves = set(), set()
             for it in items:
                 if it.task >= 0:
@@ -76,17 +78,22 @@ def analyze(program: Program, units: int, threshold: int = 8,
             lane_work += len(seen)
             smem += mem
             busiest = max(busiest, len(seen) + mem)
-        t_p += busiest + (sync_cost if st in sc.sync_before else 0.0)
+            warps[rank // diverge] = warps.get(rank // diverge, 0.0) + len(seen) + mem
+        sync = sync_cost if st in sc.sync_before else 0.0
+        t_p += max(warps.values(), default=0.0) + sync
+        t_mimd += busiest + sync
     syncs = len(sc.sync_before)
     cost = units * t_p
     S = W / t_p if t_p else 0.0
     t_ideal = max(W / units, D)
     parts = {"recomputation": float(lane_work - W), "smem": smem,
-             "barriers": sync_cost * syncs * units}  # every lane waits at a barrier
+             "barriers": sync_cost * syncs * units,  # every lane waits at a barrier
+             "divergence": units * (t_p - t_mimd)}
     parts["idle"] = cost - W - sum(parts.values())
     total = cost - W
     return {
-        "units": units, "threshold": threshold, "sync_cost": sync_cost, "smem_cost": smem_cost,
+        "units": units, "threshold": threshold, "narrow": narrow, "diverge": diverge,
+        "sync_cost": sync_cost, "smem_cost": smem_cost,
         "W": W, "D": D, "T_s": W, "T_p": t_p, "T_ideal": t_ideal, "schedule_gap": t_p / t_ideal,
         "cost": cost, "speedup": S, "efficiency": S / units, "cost_ratio": cost / W if W else 0.0,
         "parallelism": W / D if D else 0.0,
@@ -107,10 +114,11 @@ def batch(program: Program, B: int, units: list[int], cores: int = CORES, **kw) 
     """
     W, _ = work_span(program)
     tp = {u: analyze(program, u, **kw)["T_p"] for u in {32, *units}}
+    tp_split = {k: analyze(program, k, diverge=1, **kw)["T_p"] for k in units if k < 32}
     groups = math.ceil(B / 32)  # warps are the issue unit: partial warps still occupy 32 lanes
     tiers = {"thread": (groups * 32, W), "warp": (B * 32, tp[32])}
     tiers |= {f"block{u}": (B * max(u, 32), tp[u]) for u in units if u >= 32}
-    tiers |= {f"split{k}": (groups * 32 * k, tp[k]) for k in units if k < 32}
+    tiers |= {f"split{k}": (groups * 32 * k, tp_split[k]) for k in units if k < 32}
     out = {name: {"lanes": lanes, "waves": math.ceil(lanes / cores), "per_problem": t,
                   "makespan": math.ceil(lanes / cores) * t} for name, (lanes, t) in tiers.items()}
     best = min(out, key=lambda k: out[k]["makespan"])

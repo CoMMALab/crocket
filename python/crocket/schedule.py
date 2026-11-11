@@ -71,7 +71,7 @@ def walk(g, s: int, task: int, task_of: dict[int, int], seen: set[int], leaves: 
                 stack.append(a)
 
 
-def build(program: Program, units: int, threshold: int = 8) -> Schedule:
+def build(program: Program, units: int, threshold: int = 8, narrow: int = 0) -> Schedule:
     g = program.g
     outputs = program.flat_outputs
     live = g.live(outputs)
@@ -122,13 +122,33 @@ def build(program: Program, units: int, threshold: int = 8) -> Schedule:
             items.append(Item(s, -1, 0, stage=1))
     stages = max(stages, 1 if items else 0)
 
-    # 3. longest-processing-time lane assignment per stage
+    # 3. lane assignment per stage. A wide stage spreads items longest first (LPT). A stage of at
+    #    most ``narrow`` items keeps each task whole on the lane that wrote most of its leaves, so
+    #    a chain of narrow stages stays on one lane and step 4 needs no barrier between them.
+    rank_of: dict[int, int] = {}
     for st in range(1, stages + 1):
+        stage = [it for it in items if it.stage == st]
         load = [0] * units
-        for it in sorted((it for it in items if it.stage == st), key=lambda it: (-it.cost, it.scalar)):
-            r = min(range(units), key=lambda u: (load[u], u))
-            it.rank = r
-            load[r] += it.cost
+        if len(stage) <= narrow:
+            by_task: dict[int, list[Item]] = {}
+            for it in stage:
+                by_task.setdefault(it.task, []).append(it)
+            for task in sorted(by_task, key=lambda n: (-sum(it.cost for it in by_task[n]), n)):
+                votes = [0] * units
+                for it in by_task[task]:
+                    for leaf in it.leaves:
+                        if leaf in rank_of:
+                            votes[rank_of[leaf]] += 1
+                r = min(range(units), key=lambda u: (-votes[u], load[u], u))
+                for it in by_task[task]:
+                    it.rank = r
+                    load[r] += it.cost
+        else:
+            for it in sorted(stage, key=lambda it: (-it.cost, it.scalar)):
+                r = min(range(units), key=lambda u: (load[u], u))
+                it.rank = r
+                load[r] += it.cost
+        rank_of.update({it.scalar: it.rank for it in stage})
     items.sort(key=lambda it: (it.stage, it.rank, it.scalar))
 
     # 4. syncs: before a stage that reads another rank's unsynced write

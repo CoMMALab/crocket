@@ -12,6 +12,7 @@ import hashlib
 import os
 import re
 import subprocess
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -201,7 +202,7 @@ def build(cases: list[tuple[Program, cuda.Variant]], dtype=np.float32, flags: tu
         out.parent.mkdir(parents=True, exist_ok=True)
         cu = out.with_suffix(".cu")
         cu.write_text(src)
-        tmp = out.with_suffix(f".{os.getpid()}.tmp.so")
+        tmp = out.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp.so")  # threads share a pid
         res = subprocess.run(["nvcc", *flags, "-o", str(tmp), str(cu)], capture_output=True, text=True)
         if res.returncode:
             raise RuntimeError(f"nvcc failed on {cu}:\n{res.stderr[-4000:]}")
