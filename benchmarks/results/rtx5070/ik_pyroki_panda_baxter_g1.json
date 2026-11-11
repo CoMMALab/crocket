@@ -1,0 +1,101 @@
+[
+ {
+  "method": "pyroki",
+  "robot": "panda",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 58.21550781998667,
+  "tier": "vmap",
+  "success": 1.0,
+  "pos_mm": 0.00011290538078626215,
+  "ori_rad": 3.769728732309816e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "panda",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 94.40105575999041,
+  "tier": "vmap",
+  "success": 0.9921875,
+  "pos_mm": 9.309960676497459e-05,
+  "ori_rad": 2.204888772736043e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "panda",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 270.9618760000012,
+  "tier": "vmap",
+  "success": 0.982421875,
+  "pos_mm": 9.096242669074343e-05,
+  "ori_rad": 2.1387189767371642e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "baxter",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 79.39604964001774,
+  "tier": "vmap",
+  "success": 1.0,
+  "pos_mm": 9.114341955721214e-05,
+  "ori_rad": 1.7377590819732272e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "baxter",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 289.1747108799973,
+  "tier": "vmap",
+  "success": 0.984375,
+  "pos_mm": 0.0001226855484341932,
+  "ori_rad": 2.2250780411642015e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "baxter",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 849.3458676800219,
+  "tier": "vmap",
+  "success": 0.9892578125,
+  "pos_mm": 0.0001210510480191533,
+  "ori_rad": 2.1335152500490158e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "g1",
+  "batch": 1,
+  "seeds": 8,
+  "ms": 188.81267188000493,
+  "tier": "vmap",
+  "success": 1.0,
+  "pos_mm": 5.3286964636219005e-05,
+  "ori_rad": 1.9314112360500902e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "g1",
+  "batch": 128,
+  "seeds": 8,
+  "ms": 291.12631208001403,
+  "tier": "vmap",
+  "success": 1.0,
+  "pos_mm": 6.807569667051685e-05,
+  "ori_rad": 2.0267104181672766e-07
+ },
+ {
+  "method": "pyroki",
+  "robot": "g1",
+  "batch": 1024,
+  "seeds": 8,
+  "ms": 1644.7159245000148,
+  "tier": "vmap",
+  "success": 1.0,
+  "pos_mm": 6.774548561334855e-05,
+  "ori_rad": 1.99920056238752e-07
+ }
+]

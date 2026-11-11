@@ -10,6 +10,7 @@ raw CUDA (the pRRTC harness runs the same loop with CUDA events).
 from __future__ import annotations
 
 import json
+import os
 import time
 import xml.etree.ElementTree as ET
 from functools import lru_cache
@@ -20,6 +21,7 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 ROBOT_DIR = HERE / "robots"
 RESULTS = HERE / "results"
+INPUTS = RESULTS / "inputs"
 GRIM = HERE.parents[2]  # .../GRiM (crocket is GRiM's external/crocket)
 
 ROBOTS = ("panda", "baxter", "g1")
@@ -30,6 +32,9 @@ FK_URDF = {"panda": ROBOT_DIR / "panda.urdf", "baxter": ROBOT_DIR / "baxter_sphe
            "g1": ROBOT_DIR / "g1.urdf"}
 MODEL_URDF = {"panda": ROBOT_DIR / "panda.urdf", "baxter": ROBOT_DIR / "baxter.urdf",
               "g1": ROBOT_DIR / "g1.urdf"}
+
+# nvcc target for the raw-CUDA harnesses (crocket's and GRiM's own default)
+ARCH = os.environ.get("CROCKET_ARCH", "-arch=native")
 
 K = 50
 REPS = 9
@@ -130,7 +135,7 @@ def checked(data: dict, batch: int) -> tuple[np.ndarray, np.ndarray]:
 
 
 def inputs_path(bench: str, robot: str) -> Path:
-    return RESULTS / "inputs" / f"{bench}_{robot}.npz"
+    return INPUTS / f"{bench}_{robot}.npz"
 
 
 def prepare_fk(robot: str, batches) -> None:

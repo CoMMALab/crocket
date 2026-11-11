@@ -139,8 +139,12 @@ class _Emitter:
             sw = (f"        switch ({rank})\n        {{\n" + "\n".join(cases)
                   + "\n        default:\n            break;\n        }\n")
             if split:
+                # Reconverge the warp before returning. ptxas for sm_120 passes uniform pointer
+                # arguments in uniform registers and, when each case returns on its own, reuses
+                # them as scratch while other lanes' cases still need them (ptxas 12.9-13.4).
+                reconverge = "        __syncwarp();\n" if mode in ("warp", "block") else ""
                 out.append(f"    template <class T>\n    __device__ __noinline__ void {fn}_s{st}({sig})\n"
-                           f"    {{\n{sw}    }}\n")
+                           f"    {{\n{sw}{reconverge}    }}\n")
                 calls.append(sync + f"        {fn}_s{st}<T>({self.args}, s, ys);\n")
             else:
                 calls.append(sync + sw)

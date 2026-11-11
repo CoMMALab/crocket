@@ -135,7 +135,7 @@ def build(robot: str, n_boxes: int) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     if not out.exists() or not cu.exists() or cu.read_text() != src:
         cu.write_text(src)
-        subprocess.check_call(["nvcc", "-O3", "-std=c++17", "-arch=sm_86", str(cu), "-o", str(out)])
+        subprocess.check_call(["nvcc", "-O3", "-std=c++17", common.ARCH, str(cu), "-o", str(out)])
     return out
 
 

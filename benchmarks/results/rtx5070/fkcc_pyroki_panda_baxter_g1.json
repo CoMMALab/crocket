@@ -1,0 +1,122 @@
+[
+ {
+  "method": "pyroki",
+  "robot": "panda",
+  "batch": 1,
+  "ms": 0.16272246139124036,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "",
+  "collide": 0.0
+ },
+ {
+  "method": "pyroki",
+  "robot": "panda",
+  "batch": 128,
+  "ms": 0.14524905942380428,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "",
+  "collide": 0.25
+ },
+ {
+  "method": "pyroki",
+  "robot": "panda",
+  "batch": 1024,
+  "ms": 0.17406712053343654,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "",
+  "collide": 0.40625
+ },
+ {
+  "method": "pyroki",
+  "robot": "panda",
+  "batch": 16384,
+  "ms": 1.4491836191155016,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "",
+  "collide": 0.4638671875
+ },
+ {
+  "method": "pyroki",
+  "robot": "baxter",
+  "batch": 1,
+  "ms": 0.4443480004556477,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "",
+  "collide": 0.0
+ },
+ {
+  "method": "pyroki",
+  "robot": "baxter",
+  "batch": 128,
+  "ms": 0.36098311888054013,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "",
+  "collide": 0.75
+ },
+ {
+  "method": "pyroki",
+  "robot": "baxter",
+  "batch": 1024,
+  "ms": 0.4749744781292975,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "",
+  "collide": 0.5
+ },
+ {
+  "method": "pyroki",
+  "robot": "baxter",
+  "batch": 16384,
+  "ms": 2.4935115198604763,
+  "agree": 1.0,
+  "boxes": 11,
+  "variant": "",
+  "collide": 0.470703125
+ },
+ {
+  "method": "pyroki",
+  "robot": "g1",
+  "batch": 1,
+  "ms": 0.5210587219335139,
+  "agree": 1.0,
+  "boxes": 7,
+  "variant": "",
+  "collide": 0.0
+ },
+ {
+  "method": "pyroki",
+  "robot": "g1",
+  "batch": 128,
+  "ms": 0.4124848800711334,
+  "agree": 1.0,
+  "boxes": 7,
+  "variant": "",
+  "collide": 0.5
+ },
+ {
+  "method": "pyroki",
+  "robot": "g1",
+  "batch": 1024,
+  "ms": 0.59086789842695,
+  "agree": 1.0,
+  "boxes": 7,
+  "variant": "",
+  "collide": 0.453125
+ },
+ {
+  "method": "pyroki",
+  "robot": "g1",
+  "batch": 16384,
+  "ms": 2.7395350602455437,
+  "agree": 1.0,
+  "boxes": 7,
+  "variant": "",
+  "collide": 0.4560546875
+ }
+]

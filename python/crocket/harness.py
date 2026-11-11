@@ -8,8 +8,10 @@ Each (algorithm, variant) gets a ``__global__`` wrapper and an ``extern "C"`` ho
 from __future__ import annotations
 
 import ctypes
+import functools
 import hashlib
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +22,7 @@ from . import cuda
 from .trace import Program
 
 ARCH = os.environ.get("CROCKET_ARCH", "-arch=native")
+NVCC = os.environ.get("CROCKET_NVCC", "nvcc")
 SMEM_LIMIT = 96 * 1024  # bytes of shared scratch per block before falling back to global memory
 
 
@@ -30,8 +33,39 @@ def cache_dir() -> Path:
     return path
 
 
+@functools.cache
 def nvcc_version() -> str:
-    return subprocess.run(["nvcc", "--version"], capture_output=True, text=True, check=True).stdout.strip().splitlines()[-1]
+    return subprocess.run([NVCC, "--version"], capture_output=True, text=True, check=True).stdout.strip().splitlines()[-1]
+
+
+@functools.cache
+def arch_flags() -> tuple[str, ...]:
+    """``ARCH`` with ``-arch=native`` resolved to the GPUs nvcc detects (``-arch=sm_120``).
+
+    ``-arch=native`` embeds SASS for the local GPU and no PTX, so a cached library built on one
+    GPU (say an sm_86 A5000) cannot run on another (an sm_120 Blackwell card): the launch fails
+    with ``cudaErrorNoKernelImageForDevice``. Resolving it puts the real architecture into the
+    build and tuning cache keys. It also turns an nvcc too old for the GPU (Blackwell needs CUDA
+    12.8 or later) into a clear error rather than a failed build of the first header.
+    """
+    if "native" not in ARCH:
+        return (ARCH,)
+    res = subprocess.run([NVCC, ARCH, "--dryrun", "-c", "-x", "cu", os.devnull, "-o", os.devnull],
+                         capture_output=True, text=True)
+    archs = sorted(set(re.findall(r"compute_(\d+[a-z]?)", res.stdout + res.stderr)))
+    if res.returncode:
+        gpu = f" (sm_{archs[0]})" if archs else ""
+        diagnostics = res.stderr.strip().splitlines()
+        detail = diagnostics[-1] if diagnostics else f"nvcc exited with status {res.returncode}"
+        raise RuntimeError(
+            f"{NVCC} ({nvcc_version()}) cannot target this GPU{gpu}: {detail}. "
+            "Blackwell (sm_100, sm_120) needs CUDA 12.8 or later; put a newer nvcc first on PATH, "
+            "set CROCKET_NVCC, or `pip install nvidia-cuda-nvcc`.")
+    if not archs:
+        raise RuntimeError(f"{NVCC} {ARCH} found no GPU; set CROCKET_ARCH (e.g. -arch=sm_120)")
+    if len(archs) == 1:
+        return (f"-arch=sm_{archs[0]}",)
+    return tuple(f"-gencode=arch=compute_{a},code=sm_{a}" for a in archs)
 
 
 def _kernel(i: int, p: Program, v: cuda.Variant, ns: str, T: str) -> str:
@@ -160,7 +194,7 @@ def build(cases: list[tuple[Program, cuda.Variant]], dtype=np.float32, flags: tu
     src = cuda.header(robot, sections, name="robot")
     src += f"namespace r = crocket::robots::robot;\nconstexpr size_t SMEM_LIMIT = {SMEM_LIMIT};\n" + "".join(
         _kernel(i, p, v, "robot", T) for i, (p, v) in enumerate(cases))
-    flags = (*flags, "-std=c++17", ARCH, "--shared", "--compiler-options", "-fPIC")
+    flags = (*flags, "-std=c++17", *arch_flags(), "--shared", "--compiler-options", "-fPIC")
     key = hashlib.sha1((src + " ".join(flags)).encode()).hexdigest()
     out = cache_dir() / "build" / f"{key}.so"
     if not out.exists():
@@ -168,7 +202,7 @@ def build(cases: list[tuple[Program, cuda.Variant]], dtype=np.float32, flags: tu
         cu = out.with_suffix(".cu")
         cu.write_text(src)
         tmp = out.with_suffix(f".{os.getpid()}.tmp.so")
-        res = subprocess.run(["nvcc", *flags, "-o", str(tmp), str(cu)], capture_output=True, text=True)
+        res = subprocess.run([NVCC, *flags, "-o", str(tmp), str(cu)], capture_output=True, text=True)
         if res.returncode:
             raise RuntimeError(f"nvcc failed on {cu}:\n{res.stderr[-4000:]}")
         tmp.replace(out)

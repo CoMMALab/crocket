@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
+from pathlib import Path
 
 import common
 
@@ -13,7 +15,12 @@ FKCC = {"prrtc": "pRRTC `fk` + `env_collision_check`", "curobo": "cuRobo `RobotC
         "pyroki": "pyroki `RobotCollision`", "grim": "GRiD/GRiM fused (baked tables)",
         "crocket": "GRiM fused, crocket-traced FK", "crocket_fused": "crocket `sphere_collision` (fully traced)"}
 IK = {"grim": "GRiM LS IK, GRiD tables", "crocket_ls_mixed": "crocket-traced GRiM LS IK",
-      "pyroki": "pyroki + jaxls"}
+      "pyroki": "pyroki + jaxls", "crocket": "crocket LM (6×6 solve)"}
+SQP = {"grim_sqp": "GRiM SQP (float FK, double QP)",
+       "grim_sqp_f32": "GRiM SQP (float FK, float QP)",
+       "crocket_sqp_f32": "crocket SQP (float FK, float QP)",
+       "crocket_sqp_mixed": "crocket SQP (float FK, double QP)",
+       "crocket_sqp_f64": "crocket SQP (double FK, double QP)"}
 DYN = {"grid": "GRiD", "crocket": "crocket", "frax": "frax"}
 OPS = {"id": "ID (RNEA)", "crba": "M (CRBA)", "fd": "FD", "id_du": "∂ID/∂(q, q̇)"}
 
@@ -81,13 +88,22 @@ def ik_section() -> str:
         parts.append(table("method", [(label, [
             f"{c['ms']:.2f} ({100 * c['success']:.1f}%, {c['tier']})" if (c := cell(rows, method=m, robot=r, batch=P)) else "—"
             for r in common.ROBOTS]) for m, label in IK.items()]))
+    # SQP is reported separately so precision and solver differences stay visible.
+    if any(r["method"] in SQP for r in rows):
+        parts.append("\n### SQP IK: same targets, seeds and success criteria\n")
+        for P in sorted({r["batch"] for r in rows if r["method"] in SQP}):
+            parts.append(f"\n**{P} problem{'s' if P > 1 else ''} × 8 seeds**\n")
+            parts.append(table("method", [(label, [
+                f"{c['ms']:.2f} ({100 * c['success']:.1f}%, {c['tier']})"
+                if (c := cell(rows, method=m, robot=r, batch=P)) else "—"
+                for r in common.ROBOTS]) for m, label in SQP.items()]))
     return "\n".join(parts)
 
 
-def dyn_section() -> str:
+def dyn_section(memory_gb: int = 24) -> str:
     rows = load("dynamics")
     parts = ["### Dynamics\n", "Time per call in ms. crocket reports its fastest tier. OOM: the call's workspace does not "
-             "fit in the GPU's 24 GB at that batch."]
+             f"fit in the GPU's {memory_gb} GB at that batch."]
     for B in sorted({r["batch"] for r in rows}):
         parts.append(f"\n**B = {B}**\n")
         parts.append(table("op · method", [(f"{OPS[op]} · {label}", [
@@ -102,12 +118,23 @@ def dyn_section() -> str:
 
 
 def main():
-    readme = common.HERE / "README.md"
-    body = "\n\n".join([fk_section(), fkcc_section(), ik_section(), dyn_section()])
-    text = readme.read_text()
-    new = re.sub(r"(<!-- tables -->\n).*(<!-- /tables -->)", lambda m: m[1] + body + "\n" + m[2],
-                 text, flags=re.S)
-    readme.write_text(new)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--results", type=Path, default=common.RESULTS)
+    parser.add_argument("--memory-gb", type=int, default=24)
+    parser.add_argument("--output", type=Path,
+                        help="Write standalone tables instead of updating benchmarks/README.md")
+    args = parser.parse_args()
+    # Select a saved GPU dataset explicitly: never fill missing 5070 rows with A5000 runs.
+    common.RESULTS = args.results
+    body = "\n\n".join([fk_section(), fkcc_section(), ik_section(), dyn_section(args.memory_gb)])
+    if args.output:
+        args.output.write_text("<!-- tables -->\n" + body + "\n<!-- /tables -->\n")
+    else:
+        readme = common.HERE / "README.md"
+        text = readme.read_text()
+        new = re.sub(r"(<!-- tables -->\n).*(<!-- /tables -->)",
+                     lambda m: m[1] + body + "\n" + m[2], text, flags=re.S)
+        readme.write_text(new)
     print(body)
 
 

@@ -108,7 +108,7 @@ def build_prrtc() -> Path:
     if not exe.exists() or exe.stat().st_mtime < max(p.stat().st_mtime for p in src.iterdir()):
         exe.parent.mkdir(parents=True, exist_ok=True)
         # CUDA 13 dropped cudaDeviceProp::memoryClockRate, read only by a pRRTC print helper.
-        subprocess.check_call(["nvcc", "-O3", "-std=c++17", "-arch=sm_86",
+        subprocess.check_call(["nvcc", "-O3", "-std=c++17", common.ARCH,
                                "-DmemoryClockRate=major", "-I", str(prrtc), "-I", str(src),
                                str(src / "harness.cu"), "-o", str(exe)])
     return exe

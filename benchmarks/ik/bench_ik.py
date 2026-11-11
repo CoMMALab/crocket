@@ -24,6 +24,7 @@ orientation < 0.01 rad, inside joint limits.
 
 from __future__ import annotations
 
+import argparse
 import sys
 import time
 from pathlib import Path
@@ -164,7 +165,15 @@ RUNNERS = {"grim": lambda r, s, t: run_grim(r, s, t, False), "crocket": run_croc
 
 
 def main():
-    method, robots = sys.argv[1], sys.argv[2:] or list(common.ROBOTS)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("method", choices=["prepare", *RUNNERS])
+    parser.add_argument("robots", nargs="*", choices=list(common.ROBOTS))
+    parser.add_argument("--results", type=Path, default=common.RESULTS)
+    parser.add_argument("--inputs", type=Path, default=common.INPUTS)
+    args = parser.parse_args()
+    # Reuse the exact saved seeds/targets while keeping each GPU's measurements separate.
+    common.RESULTS, common.INPUTS = args.results, args.inputs
+    method, robots = args.method, args.robots or list(common.ROBOTS)
     if method == "prepare":
         for robot in robots:
             prepare(robot)

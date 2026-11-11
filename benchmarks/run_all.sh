@@ -32,7 +32,8 @@ for m in prrtc pyroki grim crocket; do "${JAXPY}" fk/bench_fk.py "$m"; done
 "${TORCHPY}" fk/bench_fk.py curobo
 for m in prrtc pyroki grim crocket crocket_fused; do "${JAXPY}" fk/bench_fkcc.py "$m"; done
 "${TORCHPY}" fk/bench_fkcc.py curobo
-for m in grim crocket_ls_mixed pyroki; do "${JAXPY}" ik/bench_ik.py "$m"; done
+# Include the LM and SQP alternatives recorded in the per-GPU comparison tables.
+for m in grim crocket_ls_mixed pyroki crocket grim_sqp grim_sqp_f32 crocket_sqp_f32 crocket_sqp_mixed crocket_sqp_f64; do "${JAXPY}" ik/bench_ik.py "$m"; done
 for m in grid crocket frax; do "${JAXPY}" dynamics/bench_dynamics.py "$m"; done
 
 "${JAXPY}" tables.py
