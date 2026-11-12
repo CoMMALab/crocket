@@ -16,6 +16,14 @@ one problem on each lane with the warps sharing each problem's stages (``cricket
 warp mode, formerly the ``split`` tier). Every thread passes its own problem's pointers. See
 docs/tier_layouts.html.
 
+The warp / block functions take ``(..., T* s, const T* tables, int ys)``: ``s`` is the scratch
+(``<alg>_<tier>_smem`` elements per warp / per block), ``tables`` the robot's lookup tables
+(``<alg>_<tier>_tables<T>()`` elements, once per block, shared by every warp: constants in T,
+indices in 16 bits), filled once per launch
+by ``<alg>_<tier>_load_tables(tables, rank, size)`` from every thread of the calling group,
+which then syncs (``__syncwarp`` / ``__syncthreads``). Several warps loading the same tables
+write identical values, so each warp may load them itself after an early return of others.
+
 A unit over ``budget`` statements is emitted as ``__noinline__`` stage functions: large
 straight-line functions are where ptxas has silently miscompiled cricket traces at -O2/-O3.
 """
@@ -23,6 +31,7 @@ straight-line functions are where ptxas has silently miscompiled cricket traces 
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 
 from . import schedule as sched_mod
@@ -149,7 +158,8 @@ class _Emitter:
 
     # ---- cooperative tiers ----------------------------------------------------------------
 
-    def cooperative(self, sc: sched_mod.Schedule, mode: str, fn: str | None = None) -> str:
+    def cooperative(self, sc: sched_mod.Schedule, mode: str, fn: str | None = None,
+                    tables: bool = False) -> str:
         """``mode="split"``: the warp / block tiers at P = 32, one problem per lane, the warps the
         ranks (each its own ``case`` per stage), named ``fn``. With one warp the rank is always 0,
         so packed warps each run their own 32 problems. ``mode="thread"`` is the same schedule run
@@ -198,7 +208,9 @@ class _Emitter:
 
         split = total > self.budget
         fn = fn or f"{name}_{mode}"
-        sig = f"{self.params}, T* __restrict__ s, int ys"
+        # the warp / block tiers share one signature; at P = 32 the tables are unused (none made)
+        tab_sig, tab_arg = (", const T* __restrict__ tables", ", tables") if tables else ("", "")
+        sig = f"{self.params}, T* __restrict__ s{tab_sig}, int ys"
         out, calls = [], []
         for st, cases in stages:
             sync = f"        {barrier}\n" if barrier and st in sc.sync_before else ""
@@ -212,7 +224,7 @@ class _Emitter:
             if split:
                 out.append(f"    template <class T>\n    __device__ __noinline__ void {fn}_s{st}({sig})\n"
                            f"    {{\n{sw}    }}\n")
-                calls.append(sync + f"        {fn}_s{st}<T>({self.args}, s, ys);\n")
+                calls.append(sync + f"        {fn}_s{st}<T>({self.args}, s{tab_arg}, ys);\n")
             else:
                 calls.append(sync + sw)
         if sc.dataflow:  # the counters must read 0 before any rank waits on them: one barrier
@@ -294,12 +306,12 @@ class _Emitter:
                 kids.sort(key=lambda t: repr(_shape(t)))
             return (op, kids)
 
-        # Every per-lane table is packed into one int array (operand / result slots) and one
-        # constant array, copied into scratch at entry: a group's index load is then a shared
-        # load, not a dependent global load (global tables measured ~9x slower than thread).
+        # Every per-lane table is packed into one constant array and one int array, held once
+        # per block in shared memory that the caller passes as ``tables`` and fills once per
+        # launch with ``<fn>_load_tables``: a group's index load is a shared load, not a dependent
+        # global load (global tables measured ~9x slower than thread), and the tables are not in
+        # each problem's scratch (they were 88% of g1's, which cut GRiM IK occupancy 1.7x).
         # With W = 1 the lane index is a constant, so no table is made: indices are literals.
-        # PROTOTYPE(uniform): the copy costs scratch and a prologue per call; encode indices
-        # in the instruction stream (or compute them from lane) in a real design.
         itab: list[int] = []
         ctab: list[float] = []
 
@@ -390,28 +402,40 @@ class _Emitter:
             for i, x in enumerate(int(x) for x in ids):
                 if g.op[x] == "const":
                     body.append(f"        if (sub == 0) {nm}[{i} * ys] = {literal(g.value[x])};")
-                    src.append(-1)
+                    src.append(0xFFFF)  # no slot: a constant output, written above
                 else:
                     src.append(where(x))
             off = ints(src)
             body.append(f"        for (int i = sub; i < {len(ids)}; i += {W}) "
-                        f"if (it[{off} + i] >= 0) {nm}[i * ys] = {at(f'it[{off} + i]')};")
+                        f"if (it[{off} + i] != 0xFFFF) {nm}[i * ys] = {at(f'it[{off} + i]')};")
         m, k = len(ctab), len(itab)
         head = [
             "        const int lane = threadIdx.x & 31;",
             f"        const int sub = lane & {W - 1};  // lane within this problem's group of {W}",
             f"        T* sp = s + lane / {W};  // this problem's slots, interleaved by {P}",
-            f"        T* cv = s + {P * max(n, 1)};",
-            f"        int* it = reinterpret_cast<int*>(cv + {m});  // {k} ints, reserved as {k} T",
-            f"        for (int i = {tid}; i < {m}; i += {threads}) cv[i] = T({pre}_ctab[i]);",
-            f"        for (int i = {tid}; i < {k}; i += {threads}) it[i] = {pre}_itab[i];",
+            "        const T* cv = tables;",
+            f"        const unsigned short* it = reinterpret_cast<const unsigned short*>(tables + {m});"
+            f"  // {k} indices",
         ]
-        tables = _table("int", f"{pre}_itab", itab) + _table("double", f"{pre}_ctab", ctab)
+        if any(0xFFFF <= i_ and i_ != 0xFFFF for i_ in itab) or any(i_ < 0 for i_ in itab):
+            raise ValueError(f"{pre}: a slot index does not fit the 16-bit index tables (0xFFFF marks none)")
+        tables = _table("unsigned short", f"{pre}_itab", itab) + _table("double", f"{pre}_ctab", ctab)
+        loader = (f"    /** Fill ``tables`` ({pre}_tables<T>() elements of T) for {pre}: every thread of\n"
+                  f"     *  the group calling it passes its rank and the group size; the group syncs after. */\n"
+                  f"    template <class T>\n    __device__ __forceinline__ void {pre}_load_tables("
+                  f"T* __restrict__ tables, int rank, int size)\n    {{\n"
+                  f"        for (int i = rank; i < {m}; i += size) tables[i] = T({pre}_ctab[i]);\n"
+                  f"        unsigned short* it = reinterpret_cast<unsigned short*>(tables + {m});\n"
+                  f"        for (int i = rank; i < {k}; i += size) it[i] = {pre}_itab[i];\n    }}\n"
+                  f"    /** ``tables`` for {pre}, in elements of T: {m} constants, then {k} 16-bit indices. */\n"
+                  f"    template <class T>\n    __host__ __device__ constexpr int {pre}_tables()\n"
+                  f"    {{\n        return {m} + ({k} * 2 + (int)sizeof(T) - 1) / (int)sizeof(T) + 1;\n    }}\n")
         # PROTOTYPE(uniform): no __noinline__ stage split over the statement budget (the ptxas
         # guard the other tiers have); validate every build numerically until it is added.
         fn = (f"    template <class T>\n    __device__ __forceinline__ void {name}_{tier}("
-              f"{self.params}, T* __restrict__ s, int ys = 1)\n    {{\n" + "\n".join(head + body) + "\n    }\n")
-        return tables + fn, P * max(n, 1) + m + k
+              f"{self.params}, T* __restrict__ s, const T* __restrict__ tables, int ys = 1)\n    {{\n"
+              + "\n".join(head + body) + "\n    }\n")
+        return tables + loader + fn, P * max(n, 1), m + k
 
     def _uniform_groups(self, groups, W, at, where, alloc, live, slots, ints, consts, body):
         """One warp's groups of one stage, each one lane-uniform statement (see ``uniform``)."""
@@ -511,7 +535,7 @@ def _render(t, names) -> str:
     return f"{_CALL.get(op, op)}({', '.join(args)})"
 
 
-def _table(ctype: str, name: str, vals) -> str:
+def _table(ctype: str, name: str, vals) -> str:  # ctype: int, unsigned short or double
     # PROTOTYPE(uniform): tables are `static __device__` globals in the header, so each including
     # translation unit gets its own copy; move them into a per-robot .cu.
     body = ", ".join(repr(float(v)) if ctype == "double" else str(int(v)) for v in vals) or "0"
@@ -541,20 +565,37 @@ def emit(program: Program, variants: list[Variant], budget: int = BUDGET) -> str
             raise ValueError(f"problems={v.problems}: one of {PROBLEMS}")
         if v.sync != "block" and (v.problems != 32 or warps == 1):
             raise ValueError(f"sync={v.sync!r} needs P = 32 and several warps (block tier)")
+        pre = f"{program.name}_{v.tier}"
         if v.problems == 32:  # one problem per lane: the per-lane trace, with CSE and registers
             sc = sched_mod.build(program, warps, v.threshold, placement=v.placement, sync=v.sync)
-            code, n_slots = em.cooperative(sc, "split", f"{program.name}_{v.tier}"), smem(sc, "split")
+            code = em.cooperative(sc, "split", pre, tables=True) + (
+                f"    template <class T>\n    __device__ __forceinline__ void {pre}_load_tables("
+                "T* __restrict__, int, int) {}  // P = 32: no tables\n"
+                f"    template <class T>\n    __host__ __device__ constexpr int {pre}_tables() {{ return 1; }}\n")
+            n_slots, n_tables = smem(sc, "split"), 0
         else:
             sc = sched_mod.build(program, warps, v.threshold, placement=v.placement)
-            code, n_slots = em.uniform(sc, v.tier, v.problems)
+            code, n_slots, n_tables = em.uniform(sc, v.tier, v.problems)
         out.append(code)
-        consts.append(f"    constexpr int {program.name}_{v.tier}_smem = {max(n_slots, 1)};")
+        consts.append(f"    constexpr int {pre}_smem = {max(n_slots, 1)};  // per warp (warp) / block")
         consts.append(f"    constexpr int {program.name}_{v.tier}_problems = {v.problems};")
         if v.tier == "block":
             consts.append(f"    constexpr int {program.name}_block_threads = {v.units};")
         consts.append(f"    constexpr int {program.name}_{v.tier}_stages = {sc.stages};")
     sizes = [f"    constexpr int {program.name}_{n}_size = {len(ids)};" for n, ids in program.outputs]
     return "\n".join(out) + "\n" + "\n".join(consts + sizes) + "\n"
+
+
+def layout(program: Program, v: Variant, size: int = 4) -> tuple[int, int]:
+    """(scratch, tables) of a warp / block variant in elements of a ``size``-byte T: scratch per
+    warp (warp tier) or per block, tables once per block (``<alg>_<tier>_tables<T>()``)."""
+    src = emit(program, [v])
+    pre = f"{program.name}_{v.tier}"
+    scratch = int(src.split(f"{pre}_smem = ")[1].split(";")[0])
+    if v.problems == 32:
+        return scratch, 1
+    m, k = (int(x) for x in re.search(rf"{pre}_tables\(\)\n    {{\n        return (\d+) \+ \((\d+) \*", src).groups())
+    return scratch, m + (2 * k + size - 1) // size + 1
 
 
 def header(robot: Robot, sections: list[str], name: str | None = None) -> str:

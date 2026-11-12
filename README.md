@@ -54,8 +54,10 @@ src = crocket.generate(robot, {"rnea": {}}, variants={"rnea": [crocket.Variant("
 ```cpp
 namespace r = crocket::robots::panda;
 r::rnea_thread<float>(q, qd, qdd, tau, ys);                // one problem per thread
-r::rnea_warp<float>(q, qd, qdd, tau, smem, ys);            // r::rnea_warp_problems per warp; r::rnea_warp_smem per warp
-r::rnea_block<float>(q, qd, qdd, tau, smem, ys);           // r::rnea_block_problems per block of r::rnea_block_threads
+// warp / block: tables (r::rnea_<tier>_tables elements, once per block) are filled once per
+// launch by r::rnea_<tier>_load_tables(tables, rank, size) from the calling group, then a sync
+r::rnea_warp<float>(q, qd, qdd, tau, smem, tables, ys);    // r::rnea_warp_problems per warp; r::rnea_warp_smem per warp
+r::rnea_block<float>(q, qd, qdd, tau, smem, tables, ys);   // r::rnea_block_problems per block of r::rnea_block_threads
 // every thread passes its own problem's pointers: with P problems per warp, lane l serves
 // problem l / (32 / P)
 ```

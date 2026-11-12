@@ -52,31 +52,38 @@ def _kernel(i: int, p: Program, v: cuda.Variant, ns: str, T: str) -> str:
         launch, smem, scratch = "(batch + block - 1) / block, block", "0", "0"
     elif v.tier == "warp":
         # P problems per warp, 32 / P lanes each; lanes past the batch redo the last problem
-        # (identical writes) so every lane of a started warp reaches every barrier
+        # (identical writes) so every lane of a started warp reaches every barrier. Per block: the
+        # tables once (each warp loads them itself: identical writes, then its own __syncwarp),
+        # then one scratch per warp.
         P = f"r::{p.name}_warp_problems"
+        TB, SM = f"r::{p.name}_warp_tables<{T}>()", f"r::{p.name}_warp_smem"
+        per_block = f"({TB} + (block / 32) * {SM})"
         body = (f"    const int warps = blockDim.x >> 5;\n"
                 f"    const int wg = blockIdx.x * warps + (threadIdx.x >> 5);\n"
                 f"    if (wg * {P} >= batch) return;\n"
                 f"    const int b0 = wg * {P} + (threadIdx.x & 31) / (32 / {P});\n"
                 f"    const int b = b0 < batch ? b0 : batch - 1;\n"
                 f"    extern __shared__ unsigned char raw[];\n"
-                f"    {T}* s = (!SH ? G + (size_t)blockIdx.x * warps * r::{p.name}_warp_smem : ({T}*)raw)\n"
-                f"        + (threadIdx.x >> 5) * r::{p.name}_warp_smem;\n"
-                f"    const {T}* x = X + (size_t)b * {stride};\n    {fn}({ins}, {outs}, s, batch);\n")
-        per_block = f"(block / 32) * {P}"
-        launch = f"(batch + {per_block} - 1) / ({per_block}), block"
-        smem = f"(block / 32) * r::{p.name}_warp_smem * sizeof({T})"
-        scratch = f"(size_t)((batch + {per_block} - 1) / ({per_block})) * (block / 32) * r::{p.name}_warp_smem"
+                f"    {T}* base = !SH ? G + (size_t)blockIdx.x * ({TB} + warps * {SM}) : ({T}*)raw;\n"
+                f"    {T}* s = base + {TB} + (threadIdx.x >> 5) * {SM};\n"
+                f"    r::{p.name}_warp_load_tables<{T}>(base, threadIdx.x & 31, 32);\n    __syncwarp();\n"
+                f"    const {T}* x = X + (size_t)b * {stride};\n    {fn}({ins}, {outs}, s, base, batch);\n")
+        groups = f"((batch + (block / 32) * {P} - 1) / ((block / 32) * {P}))"
+        launch = f"{groups}, block"
+        smem = f"{per_block} * sizeof({T})"
+        scratch = f"(size_t){groups} * {per_block}"
     else:  # block: P problems per block of k warps, lane / (32 / P) picks the problem
         P = f"r::{p.name}_block_problems"
+        TB, SM = f"r::{p.name}_block_tables<{T}>()", f"r::{p.name}_block_smem"
         body = (f"    const int b0 = blockIdx.x * {P} + (threadIdx.x & 31) / (32 / {P});\n"
                 f"    const int b = b0 < batch ? b0 : batch - 1;\n"
                 f"    extern __shared__ unsigned char raw[];\n"
-                f"    {T}* s = !SH ? G + (size_t)blockIdx.x * r::{p.name}_block_smem : ({T}*)raw;\n"
-                f"    const {T}* x = X + (size_t)b * {stride};\n    {fn}({ins}, {outs}, s, batch);\n")
+                f"    {T}* base = !SH ? G + (size_t)blockIdx.x * ({TB} + {SM}) : ({T}*)raw;\n"
+                f"    r::{p.name}_block_load_tables<{T}>(base, threadIdx.x, blockDim.x);\n    __syncthreads();\n"
+                f"    const {T}* x = X + (size_t)b * {stride};\n    {fn}({ins}, {outs}, base + {TB}, base, batch);\n")
         launch = f"(batch + {P} - 1) / {P}, r::{p.name}_block_threads"
-        smem = f"r::{p.name}_block_smem * sizeof({T})"
-        scratch = f"(size_t)((batch + {P} - 1) / {P}) * r::{p.name}_block_smem"
+        smem = f"({TB} + {SM}) * sizeof({T})"
+        scratch = f"(size_t)((batch + {P} - 1) / {P}) * ({TB} + {SM})"
     return f"""
 // SH: scratch is shared memory. A template parameter, not `G == nullptr` at run time, so after
 // inlining the compiler knows the address space and emits shared loads, not generic ones.

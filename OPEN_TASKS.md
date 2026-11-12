@@ -76,9 +76,24 @@ Layouts explained interactively in `docs/tier_layouts.html` (open in a browser).
   B=64; P=32 125 at B=1024; thread 242 at B=8192: each batch range has its own winner, all
   bit-identical. Removed: the lane-switch warp / block codegen, `Variant.narrow`. Still open:
   bump GRiM's crocket pointer and re-run its IK / dynamics suites (it calls `_warp` / `_block`
-  at P = 1 with `_warp_smem` / `_block_smem`, unchanged names); measure GRiM IK, which calls the
-  geometry once per iteration and now pays the table copy each call; `sync="named"`
+  at P = 1 with `_warp_smem` / `_block_smem`, unchanged names); `sync="named"`
   (`REDESIGN(ranks)`) is untuned and can go.
+  Step 5 (crocket 0.2.0, GRiM 0.7.0): the lookup tables left the per-problem scratch. They were
+  88% of g1's (174 -> 5793 elements per seed vs the old tiers), which cut GRiM IK occupancy and
+  made g1 SQP at 1024 seeds 1.65-1.72x slower than the old tiers. The warp / block functions take
+  `tables` (once per block, `<alg>_<tier>_tables<T>()` elements, 16-bit indices), filled once per
+  launch by `<alg>_<tier>_load_tables(tables, rank, size)`; GRiM IK loads them in `CK_WORK`,
+  GRiM dynamics per operation. GRiM's block_threads is now 32 / 64 / 128 / 256, and its
+  thread-count test compares one step to the tiers' round-off (FMA contraction differs per warp
+  count; bit-identical only under -fmad=false).
+  Next: GRiM IK at P = 32 (lanes = seeds, the k warps sharing the geometry, lockstep loops while
+  any seed is active, best of all seeds). The crocket sweep says it pays for g1: ik_geometry at
+  block k=4-8, P=32 is 1.4-2.0x the thread tier up to B = 4096 (thread spills 2000 B).
+
+- **g1 `ik_geometry` in float32 is ~5-8e-5 off the float64 interpreter** (scaled error), on every
+  tier including the thread tier, above the default 2e-5 tolerance: round-off through 29 joints and
+  four end-effector log maps. Not a tier bug; decide whether g1-class traces get a looser f32
+  tolerance or need a better-conditioned log map.
 
 ## Lane-uniform warp / block tiers (P < 32)
 

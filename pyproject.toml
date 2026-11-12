@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "crocket"
-version = "0.1.0"
+version = "0.2.0"
 description = "Trace compiler for GRiD/GLASS rigid-body kernels: thread, warp and block CUDA from one algorithm source"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -61,8 +61,9 @@ def candidates(p: Program, dtype=np.float32) -> list[tuple[cuda.Variant, int]]:
     for v, block in layouts:
         key = (v.tier, v.units, v.threshold, v.placement, v.sync, v.problems)
         if key not in sizes:
-            sizes[key] = int(cuda.emit(p, [v]).split(f"{p.name}_{v.tier}_smem = ")[1].split(";")[0])
-        per_block = sizes[key] * size * (block // 32 if v.tier == "warp" else 1)
+            sizes[key] = cuda.layout(p, v, np.dtype(dtype).itemsize)
+        scr, tab = sizes[key]
+        per_block = (tab + scr * (block // 32 if v.tier == "warp" else 1)) * size
         blocks = SMEM_PER_SM // per_block if per_block else 32
         if per_block <= harness.SMEM_LIMIT and blocks * block // 32 >= MIN_WARPS_PER_SM:
             out.append((v, block))

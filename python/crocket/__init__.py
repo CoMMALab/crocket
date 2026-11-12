@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from . import algorithms  # noqa: F401  (registers the algorithms)
 from . import cuda
